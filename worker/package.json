@@ -1,0 +1,1 @@
+{ "name": "split-free-worker", "private": true, "scripts": { "deploy": "wrangler deploy" } }

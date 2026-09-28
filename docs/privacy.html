@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy · Split Free</title>
+<style>
+  :root { --bg:#FAF9F5; --line:#DFDACD; --ink:#1F1E1D; --muted:#5C5A54; --accent:#5B3FD1; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1F1E1D; --line:#413F3B; --ink:#F5F4EF; --muted:#B4B0A6; --accent:#B3A2FF; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif }
+  main { max-width:680px; margin:0 auto; padding:48px 20px 64px }
+  h1 { font-weight:800; letter-spacing:-.02em; font-size:34px; margin:0 0 4px }
+  h2 { font-size:17px; margin:28px 0 6px } p, li { color:var(--muted) } a { color:var(--accent) }
+  .date { color:var(--muted); font-size:14px; margin:0 0 20px }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy Policy</h1>
+  <p class="date">Split Free · Last updated 28 September 2026</p>
+
+  <p>Split Free helps friends share expenses. Because a group's expenses must be visible to everyone in it, that data is stored in the cloud. This page explains exactly what is stored and who can see it.</p>
+
+  <h2>Signing in</h2>
+  <p>You sign in with Google. The app receives your name, email address and a Google account ID. Your name and email are shown to people in groups you join, so they know who you are.</p>
+
+  <h2>What is stored in the cloud</h2>
+  <ul>
+    <li>Groups you create or join, their members, invitations, expenses, payments and comments.</li>
+    <li>A notification token for your phone, and the list of groups you muted, so notifications reach the right device.</li>
+  </ul>
+  <p>This data is kept in Google Firebase (Cloud Firestore, Mumbai region). Security rules let only members of a group read or change that group. A small server on Cloudflare sends notifications and handles joining, leaving and deleting accounts; it does not keep its own copy of your data.</p>
+
+  <h2>Optional Google Drive backup</h2>
+  <p>The app can back up your groups to a hidden app folder in <strong>your own</strong> Google Drive using the <em>drive.appdata</em> permission. It cannot see, open or change any of your other Drive files. You can delete the backup in Account → Backup settings.</p>
+  <p>Use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+  <h2>Group photos</h2>
+  <p>When a group is named after a place, the app looks up a public photo of that place on Wikipedia. Only the place name is sent.</p>
+
+  <h2>Sharing</h2>
+  <p>No ads, no analytics, no tracking. Your data is never sold or shared with anyone other than the members of your groups and the services above that run the app.</p>
+
+  <h2>Deleting your data</h2>
+  <p>Account → Delete account removes you from every group, deletes your profile and your sign-in, and deletes your Drive backup. Expenses you shared with others stay in those groups so their balances remain correct.</p>
+
+  <h2>Contact</h2>
+  <p>Questions? Email <a href="mailto:guptapratyush43@gmail.com">guptapratyush43@gmail.com</a> or open an issue on <a href="https://github.com/guptapratyush43/splitfree/issues">GitHub</a>.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function isMember(gid) {
+      return signedIn() && request.auth.uid in get(/databases/$(db)/documents/groups/$(gid)).data.members;
+    }
+
+    // Your own profile, push tokens and muted groups. Nobody else can read it.
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /groups/{gid} {
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      // A new group starts with only its creator.
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.members == [request.auth.uid];
+      // Members can rename, toggle settings, invite. Membership itself only
+      // changes through the Split Free server (accept invite, join, leave).
+      allow update: if signedIn() && request.auth.uid in resource.data.members
+        && request.resource.data.members == resource.data.members
+        && request.resource.data.createdBy == resource.data.createdBy
+        && (request.resource.data.deleted == resource.data.deleted || request.auth.uid == resource.data.createdBy);
+
+      match /{sub=**} {
+        allow read, write: if isMember(gid);
+      }
+    }
+
+    match /invites/{iid} {
+      allow read: if signedIn() && (resource.data.toEmail == myEmail() || isMember(resource.data.groupId));
+      allow create, update: if isMember(request.resource.data.groupId)
+        && request.resource.data.fromUid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow delete: if isMember(resource.data.groupId);
+    }
+  }
+}

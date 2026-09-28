@@ -1,0 +1,25 @@
+# Build output
+.gradle/
+build/
+app/build/
+*.apk
+*.aab
+Apk builds/
+
+# Local machine and secrets: never commit
+local.properties
+signing/
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Firebase config (project-specific)
+app/google-services.json
+
+# Worker
+worker/node_modules/
+worker/.wrangler/

@@ -1,0 +1,11 @@
+name = "split-free"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+workers_dev = true
+
+[vars]
+PROJECT_ID = "split-free-56dfc"
+PACKAGE = "com.splitfree"
+SHA256 = "B9:B7:AE:D9:34:29:C1:F2:25:84:43:47:4D:00:77:E6:A0:B4:4B:65:7C:5F:D7:55:42:13:F1:24:1B:A3:21:B6"
+
+# Secret (set with `npx wrangler secret put SA_KEY`): the Firebase service account JSON.
