@@ -20,10 +20,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 sealed interface Screen {
     data object Home : Screen
-    data class Group(val id: String) : Screen
+    data class Group(val id: String, val tab: Int = 0) : Screen
     data class GroupSettings(val id: String) : Screen
     data class Editor(val groupId: String?, val expenseId: String?) : Screen
-    data class Detail(val groupId: String, val expenseId: String) : Screen
+    data class Detail(val groupId: String, val expenseId: String, val toComments: Boolean = false) : Screen
     data class SettleUp(val groupId: String, val from: String?, val to: String?, val amount: Long) : Screen
     data class Deleted(val groupId: String) : Screen
     data object Backup : Screen
@@ -86,8 +86,17 @@ class MainActivity : ComponentActivity() {
             nav.stack.value = listOf(Screen.Home); nav.homeTab.value = 0; nav.showInvites.value = true
             return
         }
-        intent.getStringExtra("groupId")?.takeIf { it.isNotBlank() }?.let { gid ->
-            nav.stack.value = listOf(Screen.Home, Screen.Group(gid))
+        // Open the screen the notification is about, with a sensible back path under it.
+        val gid = intent.getStringExtra("groupId")?.takeIf { it.isNotBlank() } ?: return
+        val eid = intent.getStringExtra("expenseId")?.takeIf { it.isNotBlank() }
+        val me = com.splitfree.data.Auth.uid
+        nav.homeTab.value = 0
+        val screen = intent.getStringExtra("screen")
+        nav.stack.value = when {
+            screen == "comments" && eid != null -> listOf(Screen.Home, Screen.Group(gid), Screen.Detail(gid, eid, toComments = true))
+            screen == "expense" && eid != null -> listOf(Screen.Home, Screen.Group(gid), Screen.Detail(gid, eid))
+            screen == "member" && me != null -> listOf(Screen.Home, Screen.Group(gid, tab = 1), Screen.Member(gid, me))
+            else -> listOf(Screen.Home, Screen.Group(gid))
         }
     }
 }

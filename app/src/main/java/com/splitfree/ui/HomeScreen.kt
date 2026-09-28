@@ -47,6 +47,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -73,6 +76,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(nav: NavViewModel) {
     val tab by nav.homeTab.collectAsStateWithLifecycle()
+    val tabs = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     Column(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedContent(
             targetState = tab.coerceAtMost(2),
@@ -82,10 +86,12 @@ fun HomeScreen(nav: NavViewModel) {
             },
             label = "tab", modifier = Modifier.weight(1f)
         ) { t ->
-            when (t) {
-                0 -> GroupsTab(nav)
-                1 -> ActivityTab(nav)
-                else -> AccountTab(nav)
+            tabs.SaveableStateProvider("tab$t") {
+                when (t) {
+                    0 -> GroupsTab(nav)
+                    1 -> ActivityTab(nav)
+                    else -> AccountTab(nav)
+                }
             }
         }
         BottomTabs(
@@ -137,9 +143,7 @@ private fun GroupsTab(nav: NavViewModel) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
             // ---- app bar: search, new group ----
             item {
-                Text("Split Free", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 14.dp))
-                HairLine()
+                HoliHeader("Split Free")
                 // Search capsule: tap to type.
                 SearchCapsule(query, { query = it }, focus, Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp)) { searching = it }
             }
@@ -227,55 +231,102 @@ fun NewGroupDialog(onDismiss: () -> Unit, onCreated: (String) -> Unit) {
     }
 }
 
-/** Group card: badge, name, your status, who's in it, and who owes whom with you. */
+/**
+ * Group card: the place photo fills the card, dimmed so white text reads well
+ * in light and dark mode. Name, your status and who's in the group.
+ */
 @Composable
 private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt>, onClick: () -> Unit) {
     val me = Auth.uid
-    val mine = debts.filter { it.from == me || it.to == me }
     val others = g.members.filter { it != me }.map { g.info[it]?.name ?: "Someone" }
     val people = when {
         others.isEmpty() -> "Just you so far"
         others.size <= 3 -> others.joinToString(", ")
         else -> others.take(3).joinToString(", ") + " +${others.size - 3} more"
     }
-    Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-        WarmCard(onClick = onClick, padding = 16.dp) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)
+    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val ctx = LocalContext.current
+    Box(
+        Modifier.padding(horizontal = 20.dp, vertical = 7.dp).fillMaxWidth().height(156.dp)
+            .pressScale(src).clip(shape)
+            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(groupTint(g.id), groupTint(g.id).copy(alpha = 0.7f))))
+            .clickable(interactionSource = src, indication = null) { Haptics.tick(ctx); onClick() }
+    ) {
+        if (g.cover.isNotBlank()) coil.compose.AsyncImage(
+            model = g.cover, contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize()
+        )
+        // Dim the photo: lighter at the top, darker behind the text.
+        Box(Modifier.fillMaxSize().background(
+            androidx.compose.ui.graphics.Brush.verticalGradient(
+                0f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.18f),
+                1f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.62f)
+            )
+        ))
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 18.dp)) {
+            Text(g.name, style = MaterialTheme.typography.headlineSmall, color = androidx.compose.ui.graphics.Color.White,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                GroupBadge(g.name, g.id, 60.dp, g.cover)
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(g.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        when {
-                            net > 0 -> "You are owed ${Money.format(net)}"
-                            net < 0 -> "You owe ${Money.format(-net)}"
-                            !hasExpenses -> "No expenses"
-                            else -> "Settled up"
-                        },
-                        style = MaterialTheme.typography.titleSmall, color = moneyColor(net)
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(people, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val tag = when {
+                    net > 0 -> "You are owed ${Money.format(net)}"
+                    net < 0 -> "You owe ${Money.format(-net)}"
+                    !hasExpenses -> "No expenses"
+                    else -> "Settled up"
                 }
-            }
-            if (mine.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                HairLine()
-                Spacer(Modifier.height(10.dp))
-                mine.take(3).forEach { d ->
-                    Text(
-                        buildAnnotatedString {
-                            append(if (d.to == me) "${g.name(d.from, me)} owes you " else "You owe ${g.name(d.to, me)} ")
-                            withStyle(SpanStyle(color = moneyColor(if (d.to == me) 1 else -1), fontWeight = FontWeight.Bold)) { append(Money.format(d.amount)) }
-                        },
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                val tagColor = when {
+                    net > 0 -> androidx.compose.ui.graphics.Color(0xFF9BE8A8)
+                    net < 0 -> androidx.compose.ui.graphics.Color(0xFFFFB199)
+                    else -> androidx.compose.ui.graphics.Color.White
                 }
-                if (mine.size > 3) Text("Plus ${mine.size - 3} more", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tag, style = MaterialTheme.typography.titleSmall, color = tagColor,
+                    modifier = Modifier.background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.RoundedCornerShape(50))
+                        .padding(horizontal = 12.dp, vertical = 5.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(people, style = MaterialTheme.typography.bodyMedium, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.88f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             }
         }
+    }
+}
+
+/**
+ * The app title over slowly drifting clouds of Holi colour powder. Positions are
+ * read only while drawing, so the loop never recomposes and stays smooth.
+ */
+@Composable
+private fun HoliHeader(title: String) {
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "holi")
+    val t by loop.animateFloat(
+        0f, (2 * Math.PI).toFloat(),
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(16000, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "t"
+    )
+    val colors = listOf(0xFFFF4FA3, 0xFFFFC93C, 0xFF3DDC84, 0xFF3FA9F5, 0xFFFF7A2F, 0xFF8E5CFF)
+        .map { androidx.compose.ui.graphics.Color(it) }
+    val strength = if (dark) 0.30f else 0.38f
+    Box(
+        Modifier.fillMaxWidth().height(92.dp).drawBehind {
+            val w = size.width; val h = size.height
+            colors.forEachIndexed { i, c ->
+                // Each cloud loops on its own slow path, at its own speed.
+                val k = 1f + i * 0.37f
+                val x = w * (0.12f + 0.16f * i + 0.10f * kotlin.math.sin(t * k + i))
+                val y = h * (0.5f + 0.35f * kotlin.math.cos(t * (2f - k * 0.3f) + i * 1.7f))
+                val r = h * (0.95f + 0.25f * kotlin.math.sin(t * 0.8f + i * 2f))
+                drawCircle(
+                    androidx.compose.ui.graphics.Brush.radialGradient(
+                        listOf(c.copy(alpha = strength), c.copy(alpha = 0f)), center = androidx.compose.ui.geometry.Offset(x, y), radius = r
+                    ),
+                    radius = r, center = androidx.compose.ui.geometry.Offset(x, y)
+                )
+            }
+        }
+    ) {
+        Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp))
     }
 }
 
@@ -371,7 +422,11 @@ private fun ActivityTab(nav: NavViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
-            else -> items(items!!, key = { it.second.id }) { (gid, a) ->
+            else -> items!!.groupBy { Fmt.day(it.second.at) }.forEach { (day, dayItems) ->
+            item(key = "d$day") {
+                SectionLabel(day, Modifier.padding(start = 24.dp, top = 12.dp, bottom = 2.dp))
+            }
+            items(dayItems, key = { it.second.id }) { (gid, a) ->
                 val g = groups.firstOrNull { it.id == gid }
                 Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null).padding(horizontal = 20.dp, vertical = 5.dp)) {
                     WarmCard(padding = 14.dp, onClick = {
@@ -387,7 +442,7 @@ private fun ActivityTab(nav: NavViewModel) {
                                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(Modifier.height(4.dp))
-                                Text("${g?.name ?: ""} · ${Fmt.day(a.at)}, ${Fmt.time(a.at)}", style = MaterialTheme.typography.bodySmall,
+                                Text("${g?.name ?: ""} · ${Fmt.time(a.at)}", style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (a.people.isNotEmpty()) {
                                     Spacer(Modifier.height(8.dp))
@@ -412,6 +467,7 @@ private fun ActivityTab(nav: NavViewModel) {
                         }
                     }
                 }
+            }
             }
         }
     }

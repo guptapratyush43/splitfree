@@ -65,7 +65,7 @@ async function notify(env, user, b) {
     sent += await pushTo(env, { id: uid, ...u }, {
       title: String(b.title || "Split Free").slice(0, 120),
       body: String(b.body || "").slice(0, 400),
-      data: { groupId: b.groupId, expenseId: b.expenseId || "" },
+      data: { groupId: b.groupId, expenseId: b.expenseId || "", screen: b.screen || "" },
     });
   }
   return { sent };

@@ -248,10 +248,11 @@ object Repo {
         group(g.id).collection("expenses").document(e.id).set(e.toMap())
         val me = Auth.name
         val what = if (e.settlement) settleText(g, e) else "“${e.title}” (${Money.format(e.amount)})"
-        val text = if (e.settlement) "$me recorded: $what" else if (isNew) "$me added $what" else "$me edited $what"
+        val text = if (e.settlement) "$me marked as settled: $what" else if (isNew) "$me added $what" else "$me edited $what"
         log(g.id, text, e.id, e.involved)
-        notify(g, e.involved, if (e.settlement) "Payment recorded" else if (isNew) "New expense in ${g.name}" else "Expense edited in ${g.name}",
-            if (e.settlement) "$me recorded: $what" else "$me ${if (isNew) "added" else "edited"} $what${yourShare(e)}", e.id)
+        notify(g, e.involved, if (e.settlement) "Payment marked as settled" else if (isNew) "New expense in ${g.name}" else "Expense edited in ${g.name}",
+            if (e.settlement) "$me marked as settled: $what" else "$me ${if (isNew) "added" else "edited"} $what${yourShare(e)}", e.id,
+            screen = if (e.settlement) "member" else "expense")
     }
 
     /** A repeating expense was posted by [Recurring]: log it and tell the people in it. */
@@ -266,7 +267,7 @@ object Repo {
             .update(mapOf("deleted" to true, "deletedAt" to System.currentTimeMillis(), "repeat" to Repeat.NONE.name))
         val label = if (e.settlement) "a payment of ${Money.format(e.amount)}" else "“${e.title}” (${Money.format(e.amount)})"
         log(g.id, "${Auth.name} deleted $label", e.id, e.involved)
-        notify(g, e.involved, "Expense deleted in ${g.name}", "${Auth.name} deleted $label", e.id)
+        notify(g, e.involved, "Expense deleted in ${g.name}", "${Auth.name} deleted $label", e.id, screen = "group")
     }
 
     fun restoreExpense(g: Group, e: Expense) {
@@ -312,11 +313,11 @@ object Repo {
         )
         val title = if (e.settlement) "a payment" else "“${e.title}”"
         log(g.id, "${Auth.name} commented on $title", e.id, e.involved)
-        notify(g, e.involved, "New comment in ${g.name}", "${Auth.name} on $title: $text", e.id)
+        notify(g, e.involved, "New comment in ${g.name}", "${Auth.name} on $title: $text", e.id, screen = "comments")
     }
 
     fun remind(g: Group, uid: String, amount: Long) {
-        notify(g, listOf(uid), "Payment reminder", "${Auth.name} reminded you: you owe them ${Money.format(amount)} in ${g.name}", null, force = true)
+        notify(g, listOf(uid), "Payment reminder", "${Auth.name} reminded you: you owe them ${Money.format(amount)} in ${g.name}", null, force = true, screen = "member")
     }
 
     // ---- plumbing ------------------------------------------------------------
@@ -345,11 +346,12 @@ object Repo {
     }
 
     /** Push to the given people (never yourself). Queued so it still goes out after an offline edit. */
-    fun notify(g: Group, to: Collection<String>, title: String, body: String, eid: String?, force: Boolean = false) {
+    fun notify(g: Group, to: Collection<String>, title: String, body: String, eid: String?, force: Boolean = false,
+               screen: String = if (eid != null) "expense" else "group") {
         val targets = to.filter { it != Auth.uid && it in g.members }
         if (targets.isEmpty()) return
         queue(JSONObject().put("kind", "group").put("groupId", g.id).put("to", JSONArray(targets))
-            .put("title", title).put("body", body).put("expenseId", eid ?: "").put("force", force))
+            .put("title", title).put("body", body).put("expenseId", eid ?: "").put("force", force).put("screen", screen))
     }
 
     private fun queue(json: JSONObject) {

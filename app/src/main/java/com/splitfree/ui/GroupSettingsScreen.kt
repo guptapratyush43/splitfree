@@ -1,5 +1,6 @@
 package com.splitfree.ui
 
+import androidx.compose.material.icons.rounded.Edit
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
@@ -101,7 +102,7 @@ fun GroupSettingsScreen(nav: NavViewModel, gid: String) {
                         Text(group.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                         RowBody("Created by ${group.name(group.createdBy, me)}")
                     }
-                    SecondaryButton("Edit", null, { renaming = true })
+                    ActionPill("Edit", { renaming = true }, icon = Icons.Rounded.Edit)
                 }
             }
             Spacer(Modifier.height(22.dp))

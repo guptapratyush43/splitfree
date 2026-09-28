@@ -23,7 +23,7 @@ class PushService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val n = message.notification ?: return
-        show(this, n.title.orEmpty(), n.body.orEmpty(), message.data["groupId"], message.data["kind"])
+        show(this, n.title.orEmpty(), n.body.orEmpty(), message.data["groupId"], message.data["kind"], message.data["expenseId"], message.data["screen"])
     }
 
     companion object {
@@ -39,11 +39,13 @@ class PushService : FirebaseMessagingService() {
             context.getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
 
-        fun show(context: Context, title: String, body: String, groupId: String?, kind: String? = null) {
+        fun show(context: Context, title: String, body: String, groupId: String?, kind: String? = null, expenseId: String? = null, screen: String? = null) {
             val open = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             if (groupId != null) open.putExtra("groupId", groupId)
             if (kind != null) open.putExtra("kind", kind)
-            val pi = PendingIntent.getActivity(context, (groupId ?: "").hashCode(), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            if (expenseId != null) open.putExtra("expenseId", expenseId)
+            if (screen != null) open.putExtra("screen", screen)
+            val pi = PendingIntent.getActivity(context, (groupId + expenseId + screen).hashCode(), open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             val notif = NotificationCompat.Builder(context, CHANNEL)
                 .setSmallIcon(R.drawable.ic_stat_split)
                 .setColor(context.getColor(R.color.clay))

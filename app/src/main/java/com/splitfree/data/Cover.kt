@@ -33,18 +33,23 @@ object Cover {
 
     /** Looks up (once) and saves a banner for [g] if its name changed since the last lookup. */
     fun ensure(g: Group) {
-        if (g.coverFor == g.name) return
+        if (g.coverFor == g.name && g.cover.isNotBlank()) return
         val key = g.id + "|" + g.name
         synchronized(inFlight) { if (!inFlight.add(key)) return }
         scope.launch {
             try {
-                val url = runCatching { find(g.name) }.getOrNull().orEmpty()
+                // A network failure throws and nothing is saved, so it's tried again next time.
+                // No photo for this name: a random landscape, fixed per group.
+                val url = runCatching { find(g.name) ?: scenery(g.id) }.getOrNull() ?: return@launch
                 Repo.db.collection("groups").document(g.id).update(mapOf("cover" to url, "coverFor" to g.name))
             } finally {
                 synchronized(inFlight) { inFlight.remove(key) }
             }
         }
     }
+
+    /** Free random scenery (Lorem Picsum), the same picture every time for this group. */
+    private fun scenery(gid: String) = "https://picsum.photos/seed/${java.net.URLEncoder.encode(gid, "UTF-8")}/1280/720"
 
     /** Place names to try, most specific first: the whole name, word pairs, then single words. */
     private fun candidates(name: String): List<String> {
@@ -91,15 +96,18 @@ object Cover {
         return null
     }
 
+    /** JSON for [url], null when the page doesn't exist; throws when the network fails. */
     private fun get(url: String): JSONObject? {
         val c = URL(url).openConnection() as HttpURLConnection
         return try {
             c.connectTimeout = 10_000
             c.readTimeout = 15_000
-            c.setRequestProperty("User-Agent", "SplitFree/1.3 (Android expense-splitting app)")
-            if (c.responseCode != 200) null else JSONObject(c.inputStream.use { String(it.readBytes()) })
-        } catch (e: Exception) {
-            null
+            c.setRequestProperty("User-Agent", "SplitFree/2.3 (Android expense-splitting app)")
+            when (c.responseCode) {
+                200 -> JSONObject(c.inputStream.use { String(it.readBytes()) })
+                in 500..599 -> throw java.io.IOException("Wikipedia is busy")
+                else -> null
+            }
         } finally {
             c.disconnect()
         }

@@ -74,8 +74,17 @@ fun AppRoot(nav: NavViewModel) {
             SignInScreen()
             return@Box
         }
+        // Each screen in the back stack keeps its own saved state (tab, scroll position,
+        // typed text), so coming back lands exactly where you left. Popped screens are dropped.
+        val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+        val keys = stack.mapIndexed { i, sc -> "$i:$sc" }
+        val known = remember { mutableSetOf<String>() }
+        LaunchedEffect(keys) {
+            (known - keys.toSet()).forEach { holder.removeState(it) }
+            known.clear(); known.addAll(keys)
+        }
         androidx.compose.animation.AnimatedContent(
-            targetState = stack.last(),
+            targetState = (stack.size - 1) to stack.last(),
             transitionSpec = {
                 // New screen fades in over a clean background; the old one leaves at once, so nothing overlaps.
                 (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) togetherWith
@@ -83,18 +92,18 @@ fun AppRoot(nav: NavViewModel) {
                     .using(androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() })
             },
             label = "screen"
-        ) { s -> when (s) {
+        ) { (index, s) -> holder.SaveableStateProvider("$index:$s") { when (s) {
             Screen.Home -> HomeScreen(nav)
-            is Screen.Group -> GroupScreen(nav, s.id)
+            is Screen.Group -> GroupScreen(nav, s.id, s.tab)
             is Screen.GroupSettings -> GroupSettingsScreen(nav, s.id)
             is Screen.Editor -> ExpenseEditor(nav, s.groupId, s.expenseId)
-            is Screen.Detail -> ExpenseDetail(nav, s.groupId, s.expenseId)
+            is Screen.Detail -> ExpenseDetail(nav, s.groupId, s.expenseId, s.toComments)
             is Screen.SettleUp -> ExpenseEditor(nav, s.groupId, null, payment = s)
             is Screen.Deleted -> DeletedScreen(nav, s.groupId)
             Screen.Backup -> BackupScreen(nav)
             is Screen.Member -> MemberScreen(nav, s.groupId, s.uid)
             Screen.EditProfile -> EditProfileScreen(nav)
-        } }
+        } } }
 
         // Opened from an invite notification: answer it right here.
         val showInvites by nav.showInvites.collectAsStateWithLifecycle()

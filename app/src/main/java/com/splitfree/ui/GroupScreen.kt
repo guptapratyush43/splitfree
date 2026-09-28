@@ -77,11 +77,11 @@ private val monShort = DateTimeFormatter.ofPattern("MMM", Locale.US)
 private val dayNum = DateTimeFormatter.ofPattern("dd", Locale.US)
 private fun zoned(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault())
 
-private val tabNames = listOf("Expenses", "Settle up", "Balances", "Totals")
+private val tabNames = listOf("Expenses", "Balances", "Totals")
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun GroupScreen(nav: NavViewModel, gid: String) {
+fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
     val groups by Repo.groups.collectAsStateWithLifecycle()
     val all by Repo.expenses.collectAsStateWithLifecycle()
     val loaded by Repo.groupsLoaded.collectAsStateWithLifecycle()
@@ -107,7 +107,7 @@ fun GroupScreen(nav: NavViewModel, gid: String) {
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var remind by remember { mutableStateOf<Debt?>(null) }
-    val pager = rememberPagerState { tabNames.size }
+    val pager = rememberPagerState(initialPage = startTab.coerceIn(0, tabNames.size - 1)) { tabNames.size }
 
     val items = expenses.map { it.flows }
     val nets = Balances.nets(items)
@@ -193,9 +193,9 @@ fun GroupScreen(nav: NavViewModel, gid: String) {
 
             HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
                 when (page) {
-                    0 -> ExpensesPage(nav, group, expenses, searching, query) { query = it }
-                    1 -> SettlePage(nav, group, debts, me) { remind = it }
-                    2 -> BalancesPage(nav, group, nets, debts, me) { remind = it }
+                    // Payments marked as settled live in Balances and Activity, not in the expense list.
+                    0 -> ExpensesPage(nav, group, expenses.filter { !it.settlement }, searching, query) { query = it }
+                    1 -> BalancesPage(nav, group, nets, debts, me) { remind = it }
                     else -> TotalsPage(group, all[gid].orEmpty(), me)
                 }
             }
@@ -239,57 +239,22 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
     }
 }
 
-/** Who should pay whom right now, one tap to record each payment. */
-@Composable
-private fun SettlePage(nav: NavViewModel, group: Group, debts: List<Debt>, me: String, onRemind: (Debt) -> Unit) {
-    val sorted = debts.sortedByDescending { it.from == me || it.to == me }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 24.dp)) {
-        if (debts.isEmpty()) item {
-            EmptyState(Icons.Rounded.Handshake, "Everyone is settled up", "Nothing to pay back in this group.") { Spacer(Modifier.height(10.dp)) }
-        } else item {
-            Text("Suggested payments", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-            Spacer(Modifier.height(4.dp))
-            Text("Paid outside the app (cash, UPI, bank)? Record it here so balances update.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(16.dp))
-        }
-        items(sorted, key = { it.from + it.to }) { d ->
-            WarmCard(padding = 14.dp) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(group.info[d.from]?.name ?: "?", d.from, 40.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("${if (d.from == me) "You" else group.name(d.from, me)} → ${if (d.to == me) "you" else group.name(d.to, me)}",
-                            style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                        Text(Money.format(d.amount), style = MaterialTheme.typography.titleMedium,
-                            color = if (d.to == me) moneyColor(1) else if (d.from == me) moneyColor(-1) else MaterialTheme.colorScheme.onSurface)
-                    }
-                    if (d.to == me) { ActionPill("Remind", { onRemind(d) }); Spacer(Modifier.width(8.dp)) }
-                    ActionPill("Record", { nav.push(Screen.SettleUp(group.id, d.from, d.to, d.amount)) }, filled = true)
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-        }
-        item {
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-                SecondaryButton("Record a different payment", null, { nav.push(Screen.SettleUp(group.id, null, null, 0)) })
-            }
-        }
-    }
-}
-
 /** A centred status on top, then one card per member; tap a member to see who they owe or are owed by. */
 @Composable
 private fun BalancesPage(nav: NavViewModel, group: Group, nets: Map<String, Long>, debts: List<Debt>, me: String, onRemind: (Debt) -> Unit) {
     val people = (group.members + nets.keys).distinct()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 24.dp)) {
         item {
-            if (debts.isEmpty()) EmptyState(Icons.Rounded.AccountBalanceWallet, "Everyone is settled up", "No one owes anything in this group.") {}
-            else EmptyState(Icons.Rounded.AccountBalanceWallet, "${debts.size} payment${if (debts.size == 1) "" else "s"} pending",
-                if (group.simplify) "Debts are simplified, so fewer payments are needed." else "Tap a member to see who they owe.") {}
-            Spacer(Modifier.height(8.dp))
-            SectionLabel("Members")
+            if (debts.isEmpty()) {
+                EmptyState(Icons.Rounded.AccountBalanceWallet, "Everyone is settled up", "No one owes anything in this group.") {}
+                Spacer(Modifier.height(8.dp))
+                SectionLabel("Members")
+            } else {
+                Spacer(Modifier.height(10.dp))
+                SectionLabel("Members", Modifier.padding(bottom = 0.dp))
+                Text("Tap a member to see who they owe.", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
+            }
         }
         items(people, key = { it }) { uid ->
             val n = nets[uid] ?: 0
@@ -326,6 +291,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     val debts = (if (group.simplify) Balances.settle(nets) else Balances.pairwise(items)).filter { it.from == uid || it.to == uid }
     val n = nets[uid] ?: 0
     var remind by remember { mutableStateOf<Debt?>(null) }
+    var settle by remember { mutableStateOf<Debt?>(null) }
     Column(Modifier.fillMaxSize()) {
         TopBar(group.name(uid, me).let { if (it == "You") "Your balance" else it }, onBack = { nav.pop() })
         LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
@@ -341,6 +307,10 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                     )
                 }
                 Spacer(Modifier.height(10.dp))
+                if (debts.any { it.to != me && it.from == me }) {
+                    Text("Only the person you owe can mark a payment as settled.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+                }
                 if (debts.isEmpty()) EmptyState(Icons.Rounded.Handshake, "Nothing pending", "No payments are due between ${group.name(uid, me).let { if (it == "You") "you" else it }} and anyone else.") {}
                 else SectionLabel("Pending payments")
             }
@@ -356,8 +326,11 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                             Text(Money.format(d.amount), style = MaterialTheme.typography.titleMedium,
                                 color = if (d.to == me) moneyColor(1) else if (d.from == me) moneyColor(-1) else MaterialTheme.colorScheme.onSurface)
                         }
-                        if (d.to == me) { ActionPill("Remind", { remind = d }); Spacer(Modifier.width(8.dp)) }
-                        ActionPill("Record", { nav.push(Screen.SettleUp(gid, d.from, d.to, d.amount)) }, filled = true)
+                        if (d.to == me) {
+                            ActionPill("Remind", { remind = d })
+                            Spacer(Modifier.width(8.dp))
+                            ActionPill("Mark as settled", { settle = d }, filled = true)
+                        }
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -367,6 +340,13 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     remind?.let { d ->
         ConfirmDialog("Send a reminder?", "${group.name(d.from, me)} gets a notification that they owe you ${Money.format(d.amount)}.", "Remind",
             onConfirm = { Repo.remind(group, d.from, d.amount); toast(context, "Reminder sent") }, onDismiss = { remind = null }, danger = false)
+    }
+    settle?.let { d ->
+        ConfirmDialog("Mark as settled?", "${group.name(d.from, me)} paid you ${Money.format(d.amount)}. This clears it from the balances.", "Mark as settled",
+            onConfirm = {
+                Repo.settle(group, d.from, d.to, d.amount, System.currentTimeMillis())
+                Haptics.success(context); toast(context, "Marked as settled")
+            }, onDismiss = { settle = null }, danger = false)
     }
 }
 

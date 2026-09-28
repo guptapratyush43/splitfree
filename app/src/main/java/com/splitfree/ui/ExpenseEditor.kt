@@ -1,5 +1,6 @@
 package com.splitfree.ui
 
+import androidx.compose.foundation.layout.offset
 import android.app.DatePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -357,6 +358,22 @@ private fun PaidByPage(
     Column(Modifier.fillMaxSize().imePadding()) {
         PageBar("Who paid?", onDone, enabled = !multi || error == null)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+            if (allowMulti) {
+                ListCard {
+                    SettingRow("More than one person paid", "Turn this on if several people chipped in for this expense, then enter how much each one paid.", null,
+                        onClick = {
+                            if (multi && payers.size > 1) payers.retainAll(listOf(payers.first()))
+                            setMulti(!multi)
+                        }) {
+                        Toggle(multi) {
+                            if (multi && payers.size > 1) payers.retainAll(listOf(payers.first()))
+                            setMulti(it)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+            SectionLabel(if (multi) "Who chipped in" else "Who paid")
             ListCard {
                 people.forEachIndexed { i, uid ->
                     if (i > 0) HairLine()
@@ -368,11 +385,6 @@ private fun PaidByPage(
                         if (multi && on) MiniField(inputs[uid].orEmpty(), { inputs[uid] = it }, "₹", null)
                     }
                 }
-                if (allowMulti) HairLine()
-                if (allowMulti) SettingRow("Multiple people", "Each person enters what they paid", null, onClick = {
-                    if (multi && payers.size > 1) payers.retainAll(listOf(payers.first()))
-                    setMulti(!multi)
-                }) { CheckDot(multi) }
             }
             if (multi) {
                 Spacer(Modifier.height(12.dp))
@@ -392,7 +404,19 @@ private fun SplitPage(
 ) {
     val ok = result is SplitResult.Ok
     Column(Modifier.fillMaxSize().imePadding()) {
-        PageBar("Adjust split", onDone, enabled = ok || amount == 0L)
+        val shake = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+        val shakeScope = androidx.compose.runtime.rememberCoroutineScope()
+        val ctx = LocalContext.current
+        PageBar("Adjust split", {
+            if (ok || amount == 0L) onDone()
+            else {
+                // Money still to assign: shake the total, like a wrong PIN.
+                Haptics.warn(ctx)
+                shakeScope.launch {
+                    for (x in listOf(-18f, 16f, -12f, 10f, -6f, 4f, 0f)) shake.animateTo(x, androidx.compose.animation.core.tween(45))
+                }
+            }
+        }, enabled = true)
         val pager = androidx.compose.foundation.pager.rememberPagerState(initialPage = if (mode == SplitMode.EXACT) 1 else 0) { 2 }
         val scope = androidx.compose.runtime.rememberCoroutineScope()
         // Swiping and tapping a tab both switch the split type.
@@ -461,7 +485,8 @@ private fun SplitPage(
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(vertical = 12.dp)) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.weight(1f).offset { androidx.compose.ui.unit.IntOffset(shake.value.dp.roundToPx(), 0) }) {
                 Text(line1, style = MaterialTheme.typography.titleMedium,
                     color = if (ok || amount == 0L) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
                 if (line2 != null) Text(line2, style = MaterialTheme.typography.bodyMedium,

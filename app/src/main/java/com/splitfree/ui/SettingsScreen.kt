@@ -125,24 +125,7 @@ fun AccountTab(nav: NavViewModel) {
     when (confirm) {
         "logout" -> ConfirmDialog("Log out?", "Your groups stay safe in the cloud. Sign in again any time to see them.", "Log out",
             onConfirm = { scope.launch { Auth.signOut(context) } }, onDismiss = { confirm = null }, danger = false)
-        "dues" -> WarmDialog("Settle up first", onDismiss = { confirm = null }) {
-            Text("You have pending dues. Clear them, then you can delete your account.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(14.dp))
-            ListCard {
-                Repo.groups.value.filter { Repo.myNet(it.id) != 0L }.forEachIndexed { i, g ->
-                    if (i > 0) HairLine()
-                    val n = Repo.myNet(g.id)
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(g.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                        Text(if (n < 0) "You owe ${Money.format(-n)}" else "You're owed ${Money.format(n)}",
-                            style = MaterialTheme.typography.bodyMedium, color = moneyColor(n))
-                    }
-                }
-            }
-            Spacer(Modifier.height(18.dp))
-            PrimaryButton("OK", null, { confirm = null }, Modifier.fillMaxWidth())
-        }
+        "dues" -> DuesDialog("You have pending dues. Clear them, then you can delete your account.") { confirm = null }
         "type" -> {
             var typed by remember { mutableStateOf("") }
             WarmDialog("Delete account?", onDismiss = { confirm = null }) {
@@ -250,7 +233,7 @@ fun BackupScreen(nav: NavViewModel) {
                     })
                 HairLine()
                 SettingRow("Delete backup", "Removes the copy in your Drive. Your groups in the app are not affected.", Icons.Rounded.DeleteOutline,
-                    onClick = { confirm = "delete" }, danger = true)
+                    onClick = { confirm = if (Repo.groups.value.any { Repo.myNet(it.id) != 0L }) "dues" else "delete" }, danger = true)
             }
         }
     }
@@ -264,6 +247,7 @@ fun BackupScreen(nav: NavViewModel) {
             }
         }
     }
+    if (confirm == "dues") DuesDialog("You have pending dues. Clear them, then you can delete your backup.") { confirm = null }
     if (confirm == "delete") ConfirmDialog("Delete Drive backup?", "Automatic backup will be turned off. Your groups in the app are not affected.", "Delete",
         onConfirm = { run({ "Backup deleted" }) { Backup.deleteBackup(); Backup.setEnabled(false) } }, onDismiss = { confirm = null })
 }
@@ -291,5 +275,27 @@ fun rememberDriveConnect(onGranted: () -> Unit): (Activity, (() -> Unit)?) -> Un
                 } else { onGranted(); then?.invoke() }
             } catch (e: Exception) { toast(context, e.message ?: "Couldn't reach Google") }
         }
+    }
+}
+
+/** "Settle up first": lists each group where you still owe or are owed. */
+@Composable
+fun DuesDialog(message: String, onDismiss: () -> Unit) {
+    WarmDialog("Settle up first", onDismiss = onDismiss) {
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(14.dp))
+        ListCard {
+            Repo.groups.value.filter { Repo.myNet(it.id) != 0L }.forEachIndexed { i, g ->
+                if (i > 0) HairLine()
+                val n = Repo.myNet(g.id)
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text(g.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                    Text(if (n < 0) "You owe ${Money.format(-n)}" else "You're owed ${Money.format(n)}",
+                        style = MaterialTheme.typography.bodyMedium, color = moneyColor(n))
+                }
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        PrimaryButton("OK", null, onDismiss, Modifier.fillMaxWidth())
     }
 }

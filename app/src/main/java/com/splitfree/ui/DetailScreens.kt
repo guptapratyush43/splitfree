@@ -1,5 +1,6 @@
 package com.splitfree.ui
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,7 +54,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 @Composable
-fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String) {
+fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boolean = false) {
     val groups by Repo.groups.collectAsStateWithLifecycle()
     val all by Repo.expenses.collectAsStateWithLifecycle()
     val group = groups.firstOrNull { it.id == gid }
@@ -78,7 +79,9 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String) {
                 IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.DeleteOutline, "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(28.dp)) }
             }
         }
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+        val list = androidx.compose.foundation.lazy.rememberLazyListState()
+        LaunchedEffect(toComments, comments.size) { if (toComments && comments.isNotEmpty()) list.animateScrollToItem(comments.size) }
+        LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
             item {
                 WarmCard(padding = 20.dp) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

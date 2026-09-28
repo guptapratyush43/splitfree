@@ -32,7 +32,7 @@ data class Group(
 }
 
 enum class Category(val label: String, val emoji: String) {
-    GENERAL("General", "🧾"), FOOD("Food & drink", "🍽️"), GROCERIES("Groceries", "🛒"), TRAVEL("Travel", "✈️"),
+    GENERAL("General", "🧾"), FOOD("Food & drink", "🍽️"), GROCERIES("Groceries", "🛒"), TRAVEL("Travel", "🛣️"),
     TRANSPORT("Transport", "🚕"), FUEL("Fuel", "⛽"), RENT("Rent", "🏠"), BILLS("Bills & utilities", "💡"),
     SHOPPING("Shopping", "🛍️"), ENTERTAINMENT("Entertainment", "🎬"), HEALTH("Health", "💊"), GIFTS("Gifts", "🎁"),
     STAY("Hotel & stay", "🏨"), OTHER("Other", "📌");
