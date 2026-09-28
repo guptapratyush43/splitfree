@@ -15,8 +15,8 @@ android {
         applicationId = "com.splitfree"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "2.0"
+        versionCode = 12
+        versionName = "2.1"
         // Cloudflare Worker that sends pushes and does membership changes.
         buildConfigField("String", "API_URL", "\"https://split-free.split-free-worker.workers.dev\"")
     }
@@ -92,6 +92,9 @@ dependencies {
 
     // Group banner photos.
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Reads photo orientation for the profile cropper.
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     // Invite QR code.
     implementation("com.google.zxing:core:3.5.3")

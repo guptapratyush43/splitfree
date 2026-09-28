@@ -2,7 +2,14 @@ package com.splitfree.data
 
 import com.google.firebase.firestore.DocumentSnapshot
 
-data class Member(val uid: String, val name: String, val email: String)
+/**
+ * A person as the group sees them. [avatar] is a chosen cartoon (index into the
+ * bundled pool, -1 = automatic) and [photo] a small JPEG (Base64) from their gallery.
+ */
+data class Member(
+    val uid: String, val name: String, val email: String,
+    val gender: String = "", val avatar: Int = -1, val photo: String = ""
+)
 
 data class Group(
     val id: String,
@@ -93,7 +100,10 @@ fun DocumentSnapshot.toGroup() = Group(
     createdBy = getString("createdBy").orEmpty(),
     members = (get("members") as? List<String>).orEmpty(),
     info = (get("memberInfo") as? Map<String, Map<String, Any?>>).orEmpty().mapValues { (uid, m) ->
-        Member(uid, m["name"] as? String ?: "Someone", m["email"] as? String ?: "")
+        Member(
+            uid, m["name"] as? String ?: "Someone", m["email"] as? String ?: "",
+            m["gender"] as? String ?: "", (m["avatar"] as? Number)?.toInt() ?: -1, m["photo"] as? String ?: ""
+        )
     },
     simplify = getBoolean("simplify") ?: false,
     joinCode = getString("joinCode").orEmpty(),

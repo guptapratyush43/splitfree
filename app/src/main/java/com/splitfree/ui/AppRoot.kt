@@ -59,6 +59,9 @@ fun AppRoot(nav: NavViewModel) {
 
     BackHandler(enabled = stack.size > 1) { nav.pop() }
 
+    val update by com.splitfree.update.UpdateManager.offer.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { com.splitfree.update.UpdateManager.checkOnLaunch() }
+
     val connectDrive = rememberDriveConnect { com.splitfree.backup.Backup.setEnabled(true); com.splitfree.backup.Backup.onDataChanged() }
     LaunchedEffect(user?.uid) {
         if (user != null && com.splitfree.backup.Backup.shouldAskOnce()) connectDrive(context as Activity, null)
@@ -90,6 +93,7 @@ fun AppRoot(nav: NavViewModel) {
             is Screen.Deleted -> DeletedScreen(nav, s.groupId)
             Screen.Backup -> BackupScreen(nav)
             is Screen.Member -> MemberScreen(nav, s.groupId, s.uid)
+            Screen.EditProfile -> EditProfileScreen(nav)
         } }
 
         // Opened from an invite notification: answer it right here.
@@ -113,6 +117,8 @@ fun AppRoot(nav: NavViewModel) {
                 InviteCard(inv)
             }
         }
+
+        if (user != null) update?.let { UpdateDialog(it) }
 
         pendingJoin?.let { (gid, code) ->
             var busy by remember { mutableStateOf(false) }

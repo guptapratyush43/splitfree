@@ -32,7 +32,8 @@ object Auth {
 
     val uid: String? get() = fa.currentUser?.uid
     val email: String get() = fa.currentUser?.email.orEmpty().lowercase()
-    val name: String get() = fa.currentUser?.displayName?.takeIf { it.isNotBlank() } ?: email.substringBefore('@')
+    val name: String get() = Repo.me.value?.name?.takeIf { it.isNotBlank() }
+        ?: fa.currentUser?.displayName?.takeIf { it.isNotBlank() } ?: email.substringBefore('@')
 
     /** Google account picker, then Firebase sign-in with the returned ID token. */
     suspend fun signIn(activity: Activity) {

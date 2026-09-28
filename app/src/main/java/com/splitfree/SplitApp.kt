@@ -8,6 +8,9 @@ import com.splitfree.data.Repo
 import com.splitfree.push.PushService
 
 /** Wikimedia refuses image requests without an identifying User-Agent, so the image loader sends one. */
+/** App-wide scope for work that should outlive a screen, like an update download. */
+val AppScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
+
 class SplitApp : Application(), coil.ImageLoaderFactory {
     override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
         .okHttpClient {
@@ -29,5 +32,7 @@ class SplitApp : Application(), coil.ImageLoaderFactory {
         Repo.init(this)
         Backup.init(this)
         Recurring.schedule(this)
+        com.splitfree.update.UpdateManager.init(this)
+        com.splitfree.update.UpdateWorker.schedule(this)
     }
 }

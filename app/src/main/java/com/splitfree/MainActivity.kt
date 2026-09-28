@@ -28,6 +28,7 @@ sealed interface Screen {
     data class Deleted(val groupId: String) : Screen
     data object Backup : Screen
     data class Member(val groupId: String, val uid: String) : Screen
+    data object EditProfile : Screen
 }
 
 /** A tiny back stack; the app has no animated transitions by design. */

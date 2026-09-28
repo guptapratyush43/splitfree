@@ -31,6 +31,12 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.splitfree.money.Money
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,14 +67,19 @@ fun AccountTab(nav: NavViewModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("Account", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 16.dp))
+        val meNow by Repo.me.collectAsStateWithLifecycle()
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 20.dp)) {
-            Avatar(Auth.name, Auth.uid.orEmpty(), 64.dp)
+            Avatar(meNow?.name ?: Auth.name, Auth.uid.orEmpty(), 64.dp)
             Spacer(Modifier.width(16.dp))
-            Column {
-                Text(Auth.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+            Column(Modifier.weight(1f)) {
+                Text(meNow?.name ?: Auth.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 Spacer(Modifier.height(2.dp))
-                Text(Auth.email, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Auth.email, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
+            Spacer(Modifier.width(10.dp))
+            ActionPill("Edit", { nav.push(Screen.EditProfile) }, icon = Icons.Rounded.Edit)
         }
         Spacer(Modifier.height(24.dp))
         HairLine()
@@ -78,6 +89,18 @@ fun AccountTab(nav: NavViewModel) {
             if (backupOn) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff, onClick = { nav.push(Screen.Backup) })
         SettingRow("Notification settings", "Allow Split Free to notify you", Icons.Rounded.Notifications, onClick = {
             context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+        })
+        var checking by remember { mutableStateOf(false) }
+        SettingRow("Check for updates", if (checking) "Checking…" else "You're on v${BuildConfig.VERSION_NAME}", Icons.Rounded.SystemUpdate, onClick = {
+            if (!checking) {
+                checking = true
+                scope.launch {
+                    try {
+                        if (com.splitfree.update.UpdateManager.checkNow() == null) toast(context, "You're on the latest version")
+                    } catch (e: Exception) { toast(context, "Couldn't check right now. Try again in a bit.") }
+                    finally { checking = false }
+                }
+            }
         })
         val xiaomiLike = Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco", "oppo", "vivo", "realme", "oneplus")
         SettingRow(
@@ -92,8 +115,7 @@ fun AccountTab(nav: NavViewModel) {
         HairLine()
         SettingRow("Log out", null, Icons.AutoMirrored.Rounded.Logout, onClick = { confirm = "logout" })
         SettingRow("Delete account", "Removes you from every group and deletes your account", Icons.Rounded.DeleteForever, onClick = {
-            val open = Repo.groups.value.filter { Repo.myNet(it.id) != 0L }
-            if (open.isNotEmpty()) toast(context, "Settle up first in: ${open.joinToString { it.name }}") else confirm = "account"
+            confirm = if (Repo.groups.value.any { Repo.myNet(it.id) != 0L }) "dues" else "type"
         }, danger = true)
         Spacer(Modifier.height(18.dp))
         Footnote("Split Free v${BuildConfig.VERSION_NAME}")
@@ -103,18 +125,70 @@ fun AccountTab(nav: NavViewModel) {
     when (confirm) {
         "logout" -> ConfirmDialog("Log out?", "Your groups stay safe in the cloud. Sign in again any time to see them.", "Log out",
             onConfirm = { scope.launch { Auth.signOut(context) } }, onDismiss = { confirm = null }, danger = false)
-        "account" -> ConfirmDialog("Delete your account?", "You'll leave all groups and your Split Free account is removed. This can't be undone.", "Delete",
-            onConfirm = {
-                scope.launch {
-                    try {
-                        runCatching { Backup.deleteBackup() }
-                        Backup.setEnabled(false)
-                        Repo.deleteAccount()
-                        Auth.signOut(context)
-                        toast(context, "Account deleted")
-                    } catch (e: Exception) { toast(context, Api.friendly(e)) }
+        "dues" -> WarmDialog("Settle up first", onDismiss = { confirm = null }) {
+            Text("You have pending dues. Clear them, then you can delete your account.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(14.dp))
+            ListCard {
+                Repo.groups.value.filter { Repo.myNet(it.id) != 0L }.forEachIndexed { i, g ->
+                    if (i > 0) HairLine()
+                    val n = Repo.myNet(g.id)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(g.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                        Text(if (n < 0) "You owe ${Money.format(-n)}" else "You're owed ${Money.format(n)}",
+                            style = MaterialTheme.typography.bodyMedium, color = moneyColor(n))
+                    }
                 }
-            }, onDismiss = { confirm = null })
+            }
+            Spacer(Modifier.height(18.dp))
+            PrimaryButton("OK", null, { confirm = null }, Modifier.fillMaxWidth())
+        }
+        "type" -> {
+            var typed by remember { mutableStateOf("") }
+            WarmDialog("Delete account?", onDismiss = { confirm = null }) {
+                Text("This removes you from all groups and erases your account for good. Type confirm to continue.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(14.dp))
+                Field(typed, { typed = it.trim() }, placeholder = "confirm", keyboard = androidx.compose.ui.text.input.KeyboardType.Password)
+                Spacer(Modifier.height(18.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    SecondaryButton("Cancel", null, { confirm = null }, Modifier.weight(1f))
+                    SecondaryButton("Confirm", null, { confirm = "final" }, Modifier.weight(1f), enabled = typed == "confirm", danger = true)
+                }
+            }
+        }
+        "final" -> {
+            var left by remember { mutableIntStateOf(5) }
+            LaunchedEffect(Unit) { while (left > 0) { kotlinx.coroutines.delay(1000); left-- } }
+            WarmDialog("Really leaving?", onDismiss = { confirm = null }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.foundation.Image(
+                        androidx.compose.ui.res.painterResource(com.splitfree.R.drawable.av_cry), contentDescription = "A crying face",
+                        modifier = Modifier.size(120.dp)
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Do you really want to delete your account? This can't be undone.",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+                Spacer(Modifier.height(18.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    PrimaryButton("Stay", null, { confirm = null }, Modifier.weight(1f))
+                    SecondaryButton(if (left > 0) "Delete ($left)" else "Delete", null, {
+                        confirm = null
+                        scope.launch {
+                            try {
+                                runCatching { Backup.deleteBackup() }
+                                Backup.setEnabled(false)
+                                Repo.deleteAccount()
+                                Auth.signOut(context)
+                                toast(context, "Account deleted")
+                            } catch (e: Exception) { toast(context, Api.friendly(e)) }
+                        }
+                    }, Modifier.weight(1f), enabled = left == 0, danger = true)
+                }
+            }
+        }
     }
 }
 

@@ -22,6 +22,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
@@ -43,6 +44,10 @@ object Repo {
     val invites = MutableStateFlow<List<Invite>>(emptyList())
     val muted = MutableStateFlow<Set<String>>(emptySet())
     val groupsLoaded = MutableStateFlow(false)
+    /** My own profile (name, gender, cartoon or photo), from my private user record. */
+    val me = MutableStateFlow<Member?>(null)
+    /** Everyone I share a group with, plus me: what avatars and names are drawn from. */
+    val people = MutableStateFlow<Map<String, Member>>(emptyMap())
 
     private val regs = mutableListOf<ListenerRegistration>()
     private val expenseRegs = HashMap<String, ListenerRegistration>()
@@ -58,12 +63,20 @@ object Repo {
         regs += db.collection("users").document(uid).addSnapshotListener { s, _ ->
             @Suppress("UNCHECKED_CAST")
             muted.value = (s?.get("muted") as? List<String>).orEmpty().toSet()
+            if (s != null && s.exists()) {
+                me.value = Member(
+                    uid, s.getString("name")?.takeIf { it.isNotBlank() } ?: Auth.name, Auth.email,
+                    s.getString("gender").orEmpty(), (s.getLong("avatar") ?: -1L).toInt(), s.getString("photo").orEmpty()
+                )
+                refreshPeople(); syncMyProfile()
+            }
         }
         regs += db.collection("groups").whereArrayContains("members", uid).addSnapshotListener { s, e ->
             if (e != null) { Log.w(TAG, "groups", e); return@addSnapshotListener }
             val list = s!!.documents.map { it.toGroup() }.filter { !it.deleted }.sortedByDescending { it.createdAt }
             groups.value = list
             groupsLoaded.value = true
+            refreshPeople(); syncMyProfile()
             syncExpenseListeners(list.map { it.id }.toSet())
         }
         regs += db.collection("invites").whereEqualTo("toEmail", Auth.email).whereEqualTo("status", "pending")
@@ -84,6 +97,7 @@ object Repo {
         expenseRegs.values.forEach { it.remove() }; expenseRegs.clear()
         groups.value = emptyList(); expenses.value = emptyMap(); invites.value = emptyList()
         groupsLoaded.value = false
+        me.value = null; people.value = emptyMap()
     }
 
     private fun syncExpenseListeners(ids: Set<String>) {
@@ -101,6 +115,40 @@ object Repo {
                     .sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.createdAt }))
             }
         }
+    }
+
+    private fun refreshPeople() {
+        val map = HashMap<String, Member>()
+        groups.value.forEach { g -> g.info.forEach { (uid, m) -> if (uid !in map || uid in g.members) map[uid] = m } }
+        me.value?.let { map[it.uid] = it }
+        people.value = map
+    }
+
+    /** Copies my profile into every group I'm in, so members see my latest name and face. */
+    private fun syncMyProfile() {
+        val p = me.value ?: return
+        groups.value.forEach { g ->
+            val mine = g.info[p.uid]
+            if (mine == null || mine.name != p.name || mine.gender != p.gender || mine.avatar != p.avatar || mine.photo != p.photo) {
+                group(g.id).update(
+                    com.google.firebase.firestore.FieldPath.of("memberInfo", p.uid),
+                    mapOf("name" to p.name, "email" to p.email, "gender" to p.gender, "avatar" to p.avatar, "photo" to p.photo)
+                )
+            }
+        }
+    }
+
+    /** Saves my name, gender and picture; groups pick it up through [syncMyProfile]. */
+    suspend fun saveProfile(name: String, gender: String, avatar: Int, photo: String) {
+        val uid = Auth.uid ?: return
+        runCatching {
+            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.updateProfile(
+                com.google.firebase.auth.UserProfileChangeRequest.Builder().setDisplayName(name).build()
+            )?.await()
+        }
+        db.collection("users").document(uid).set(
+            mapOf("name" to name, "gender" to gender, "avatar" to avatar, "photo" to photo), SetOptions.merge()
+        )
     }
 
     fun saveToken(token: String) {

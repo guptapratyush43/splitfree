@@ -34,6 +34,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -157,6 +159,28 @@ fun Chip(text: String, active: Boolean, onClick: () -> Unit) {
     }
 }
 
+/** One of the bundled cartoons by index. */
+@Composable
+fun AvatarArt(index: Int, size: Dp, description: String? = null) {
+    androidx.compose.foundation.Image(
+        androidx.compose.ui.res.painterResource(avatarPool[index.coerceIn(0, avatarPool.size - 1)]),
+        contentDescription = description, modifier = Modifier.size(size).clip(CircleShape)
+    )
+}
+
+val avatarCount get() = avatarPool.size
+
+private val photoCache = android.util.LruCache<Int, androidx.compose.ui.graphics.ImageBitmap>(40)
+
+/** Base64 JPEG to an image, cached so lists don't decode the same face twice. */
+fun decodePhoto(b64: String): androidx.compose.ui.graphics.ImageBitmap? {
+    photoCache.get(b64.hashCode())?.let { return it }
+    return runCatching {
+        val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size).asImageBitmap()
+    }.getOrNull()?.also { photoCache.put(b64.hashCode(), it) }
+}
+
 /** 24 bundled cartoon characters; everyone gets one, the same in every group. */
 private val avatarPool = listOf(com.splitfree.R.drawable.av_01, com.splitfree.R.drawable.av_02, com.splitfree.R.drawable.av_03, com.splitfree.R.drawable.av_04, com.splitfree.R.drawable.av_05, com.splitfree.R.drawable.av_06, com.splitfree.R.drawable.av_07, com.splitfree.R.drawable.av_08, com.splitfree.R.drawable.av_09, com.splitfree.R.drawable.av_10, com.splitfree.R.drawable.av_11, com.splitfree.R.drawable.av_12, com.splitfree.R.drawable.av_13, com.splitfree.R.drawable.av_14, com.splitfree.R.drawable.av_15, com.splitfree.R.drawable.av_16, com.splitfree.R.drawable.av_17, com.splitfree.R.drawable.av_18, com.splitfree.R.drawable.av_19, com.splitfree.R.drawable.av_20, com.splitfree.R.drawable.av_21, com.splitfree.R.drawable.av_22, com.splitfree.R.drawable.av_23, com.splitfree.R.drawable.av_24)
 
@@ -167,10 +191,20 @@ private val avatarPool = listOf(com.splitfree.R.drawable.av_01, com.splitfree.R.
 @Composable
 fun Avatar(name: String, key: String, size: Dp = 40.dp) {
     if (key.isNotBlank()) {
-        androidx.compose.foundation.Image(
-            androidx.compose.ui.res.painterResource(avatarPool[Math.floorMod(key.hashCode(), avatarPool.size)]),
-            contentDescription = name, modifier = Modifier.size(size).clip(CircleShape)
-        )
+        val people by com.splitfree.data.Repo.people.collectAsState()
+        val p = people[key]
+        val photo = p?.photo.orEmpty()
+        if (photo.isNotBlank()) {
+            val bmp = remember(photo) { decodePhoto(photo) }
+            if (bmp != null) {
+                androidx.compose.foundation.Image(
+                    bmp, contentDescription = name, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.size(size).clip(CircleShape)
+                )
+                return
+            }
+        }
+        AvatarArt(p?.avatar?.takeIf { it in avatarPool.indices } ?: Math.floorMod(key.hashCode(), avatarPool.size), size, name)
         return
     }
     val palette = listOf(0xFFC15F3C, 0xFF2F6F73, 0xFF7A5BA6, 0xFF3C7A3F, 0xFFA3662A, 0xFF3F5DA8, 0xFF9C3F63, 0xFF5B6770)
