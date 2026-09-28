@@ -88,6 +88,7 @@ async function respondInvite(env, user, b) {
     },
   ];
   if (accept) writes.push(...addMemberWrites(env, inv.groupId, user));
+  writes.push(activity(env, inv.groupId, user.uid, `${user.name} ${accept ? "joined the group" : "declined the invite"}`, [inv.fromUid].filter((u) => u && u !== user.uid)));
   await commit(env, writes);
 
   // Tell whoever invited them, and the group's creator.
@@ -107,7 +108,7 @@ async function joinGroup(env, user, b) {
   const g = await getGroup(env, b.groupId);
   if (!b.code || g.joinCode !== b.code) fail(403, "This invite link is no longer valid");
   if (g.members.includes(user.uid)) return { name: g.name };
-  await commit(env, addMemberWrites(env, b.groupId, user));
+  await commit(env, [...addMemberWrites(env, b.groupId, user), activity(env, b.groupId, user.uid, `${user.name} joined with the invite link`)]);
   const c = g.createdBy && (await getDoc(env, `users/${g.createdBy}`));
   if (c) await pushTo(env, { id: g.createdBy, ...c }, {
     title: "New member", body: `${user.name} joined “${g.name}” with the invite link`, data: { groupId: b.groupId },
@@ -118,7 +119,7 @@ async function joinGroup(env, user, b) {
 async function leaveGroup(env, user, b) {
   const g = await getGroup(env, b.groupId);
   if (!g.members.includes(user.uid)) return { ok: true };
-  await commit(env, [removeWrite(env, b.groupId, user.uid)]);
+  await commit(env, [removeWrite(env, b.groupId, user.uid), activity(env, b.groupId, user.uid, `${user.name} left the group`)]);
   return { ok: true };
 }
 
@@ -126,7 +127,8 @@ async function removeMember(env, user, b) {
   const g = await getGroup(env, b.groupId);
   if (g.createdBy !== user.uid) fail(403, "Only the group's creator can remove people");
   if (!g.members.includes(b.uid)) return { ok: true };
-  await commit(env, [removeWrite(env, b.groupId, b.uid)]);
+  const name = g.memberInfo?.[b.uid]?.name || "A member";
+  await commit(env, [removeWrite(env, b.groupId, b.uid), activity(env, b.groupId, user.uid, `${user.name} removed ${name}`, [b.uid])]);
   return { ok: true };
 }
 
@@ -156,9 +158,9 @@ function removeWrite(env, gid, uid) {
   return { transform: { document: docName(env, `groups/${gid}`), fieldTransforms: [{ fieldPath: "members", removeAllFromArray: { values: [enc(uid)] } }] } };
 }
 
-function activity(env, gid, actor, text) {
+function activity(env, gid, actor, text, people = []) {
   const id = crypto.randomUUID().replace(/-/g, "").slice(0, 20);
-  return { update: { name: docName(env, `groups/${gid}/activity/${id}`), fields: encFields({ actor, text, at: Date.now(), expenseId: null }) } };
+  return { update: { name: docName(env, `groups/${gid}/activity/${id}`), fields: encFields({ actor, text, at: Date.now(), expenseId: null, people }) } };
 }
 
 function patch(path, data) {

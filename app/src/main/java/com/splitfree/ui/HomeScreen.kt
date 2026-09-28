@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -73,7 +74,7 @@ fun HomeScreen(nav: NavViewModel) {
     val tab by nav.homeTab.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedContent(
-            targetState = tab.coerceAtMost(1),
+            targetState = tab.coerceAtMost(2),
             transitionSpec = {
                 androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) togetherWith
                     androidx.compose.animation.fadeOut(androidx.compose.animation.core.snap())
@@ -82,12 +83,13 @@ fun HomeScreen(nav: NavViewModel) {
         ) { t ->
             when (t) {
                 0 -> GroupsTab(nav)
+                1 -> ActivityTab(nav)
                 else -> AccountTab(nav)
             }
         }
         BottomTabs(
-            listOf("Groups" to Icons.Rounded.Groups, "Account" to Icons.Rounded.AccountCircle),
-            tab.coerceAtMost(1)
+            listOf("Groups" to Icons.Rounded.Groups, "Activity" to Icons.Rounded.Timeline, "Account" to Icons.Rounded.AccountCircle),
+            tab.coerceAtMost(2)
         ) { nav.homeTab.value = it }
     }
 }
@@ -328,5 +330,83 @@ private fun SearchCapsule(
         )
         if (query.isNotEmpty()) Icon(Icons.Rounded.Close, "Clear", tint = scheme.onSurfaceVariant,
             modifier = Modifier.size(22.dp).clickable { onQuery("") })
+    }
+}
+
+/** Everything that happened across your groups, newest first, with the faces of everyone involved. */
+@Composable
+private fun ActivityTab(nav: NavViewModel) {
+    val groups by Repo.groups.collectAsStateWithLifecycle()
+    val ids = groups.map { it.id }
+    val flow = remember(ids) {
+        if (ids.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
+        else kotlinx.coroutines.flow.combine(ids.map { gid -> Repo.activity(gid) }) { lists ->
+            lists.flatMapIndexed { i, l -> l.map { ids[i] to it } }.sortedByDescending { it.second.at }.take(200)
+        }
+    }
+    val items by androidx.compose.runtime.produceState<List<Pair<String, com.splitfree.data.Activity>>?>(null, flow) { flow.collect { value = it } }
+    val me = Auth.uid
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item {
+            Text("Activity", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 14.dp))
+            HairLine()
+            Spacer(Modifier.height(10.dp))
+        }
+        when {
+            items == null -> item { Spacer(Modifier.height(24.dp)); Footnote("Loading…") }
+            items!!.isEmpty() -> item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 32.dp)) {
+                    IconBubble(Icons.Rounded.Timeline)
+                    Spacer(Modifier.height(18.dp))
+                    Text("No activity yet", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Expenses, payments and comments in your groups show up here.", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+            else -> items(items!!, key = { it.second.id }) { (gid, a) ->
+                val g = groups.firstOrNull { it.id == gid }
+                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null).padding(horizontal = 20.dp, vertical = 5.dp)) {
+                    WarmCard(padding = 14.dp, onClick = {
+                        if (a.expenseId != null && Repo.expenses.value[gid].orEmpty().any { it.id == a.expenseId }) nav.push(Screen.Detail(gid, a.expenseId))
+                        else nav.push(Screen.Group(gid))
+                    }) {
+                        Row(verticalAlignment = Alignment.Top) {
+                            Avatar(g?.info?.get(a.actor)?.name ?: "?", a.actor, 46.dp)
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    if (a.actor == me) a.text.replaceFirst(Auth.name, "You") else a.text,
+                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text("${g?.name ?: ""} · ${Fmt.day(a.at)}, ${Fmt.time(a.at)}", style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (a.people.isNotEmpty()) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // Overlapping faces of the others involved.
+                                        a.people.take(5).forEachIndexed { i, uid ->
+                                            Box(Modifier.padding(start = if (i == 0) 0.dp else 0.dp).offset(x = (-8 * i).dp)
+                                                .background(MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape).padding(2.dp)) {
+                                                Avatar(g?.info?.get(uid)?.name ?: "?", uid, 26.dp)
+                                            }
+                                        }
+                                        val names = a.people.map { if (it == me) "You" else g?.info?.get(it)?.name?.substringBefore(' ') ?: "Someone" }
+                                        Text(
+                                            names.take(3).joinToString(", ") + if (names.size > 3) " +${names.size - 3}" else "",
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.offset(x = (-8 * (a.people.take(5).size - 1)).dp).padding(start = 8.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

@@ -201,7 +201,7 @@ object Repo {
         val me = Auth.name
         val what = if (e.settlement) settleText(g, e) else "“${e.title}” (${Money.format(e.amount)})"
         val text = if (e.settlement) "$me recorded: $what" else if (isNew) "$me added $what" else "$me edited $what"
-        log(g.id, text, e.id)
+        log(g.id, text, e.id, e.involved)
         notify(g, e.involved, if (e.settlement) "Payment recorded" else if (isNew) "New expense in ${g.name}" else "Expense edited in ${g.name}",
             if (e.settlement) "$me recorded: $what" else "$me ${if (isNew) "added" else "edited"} $what${yourShare(e)}", e.id)
     }
@@ -209,7 +209,7 @@ object Repo {
     /** A repeating expense was posted by [Recurring]: log it and tell the people in it. */
     fun announceRepeat(g: Group, e: Expense) {
         val what = "“${e.title}” (${Money.format(e.amount)})"
-        log(g.id, "Repeating expense $what was added", e.id)
+        log(g.id, "Repeating expense $what was added", e.id, e.involved)
         notify(g, e.involved, "Repeating expense in ${g.name}", "$what was added automatically", e.id)
     }
 
@@ -217,14 +217,14 @@ object Repo {
         group(g.id).collection("expenses").document(e.id)
             .update(mapOf("deleted" to true, "deletedAt" to System.currentTimeMillis(), "repeat" to Repeat.NONE.name))
         val label = if (e.settlement) "a payment of ${Money.format(e.amount)}" else "“${e.title}” (${Money.format(e.amount)})"
-        log(g.id, "${Auth.name} deleted $label", e.id)
+        log(g.id, "${Auth.name} deleted $label", e.id, e.involved)
         notify(g, e.involved, "Expense deleted in ${g.name}", "${Auth.name} deleted $label", e.id)
     }
 
     fun restoreExpense(g: Group, e: Expense) {
         group(g.id).collection("expenses").document(e.id).update("deleted", false)
         val label = if (e.settlement) "a payment of ${Money.format(e.amount)}" else "“${e.title}” (${Money.format(e.amount)})"
-        log(g.id, "${Auth.name} restored $label", e.id)
+        log(g.id, "${Auth.name} restored $label", e.id, e.involved)
         notify(g, e.involved, "Expense restored in ${g.name}", "${Auth.name} restored $label", e.id)
     }
 
@@ -263,7 +263,7 @@ object Repo {
             mapOf("uid" to Auth.uid, "name" to Auth.name, "text" to text, "at" to System.currentTimeMillis())
         )
         val title = if (e.settlement) "a payment" else "“${e.title}”"
-        log(g.id, "${Auth.name} commented on $title", e.id)
+        log(g.id, "${Auth.name} commented on $title", e.id, e.involved)
         notify(g, e.involved, "New comment in ${g.name}", "${Auth.name} on $title: $text", e.id)
     }
 
@@ -275,10 +275,25 @@ object Repo {
 
     private fun group(gid: String) = db.collection("groups").document(gid)
 
-    /** Every change passes through here. No activity log is kept; it only triggers the automatic backup. */
-    @Suppress("UNUSED_PARAMETER")
-    private fun log(gid: String, text: String, eid: String?) {
+    /** Every change passes through here: it is written to the group's activity and triggers the automatic backup. */
+    private fun log(gid: String, text: String, eid: String?, people: Collection<String> = emptyList()) {
+        group(gid).collection("activity").add(mapOf(
+            "actor" to Auth.uid, "text" to text, "at" to System.currentTimeMillis(), "expenseId" to eid,
+            "people" to people.filter { it != Auth.uid }.distinct()
+        ))
         com.splitfree.backup.Backup.onDataChanged()
+    }
+
+    fun activity(gid: String): Flow<List<Activity>> = callbackFlow {
+        val reg = group(gid).collection("activity").orderBy("at", Query.Direction.DESCENDING).limit(100)
+            .addSnapshotListener { s, _ ->
+                @Suppress("UNCHECKED_CAST")
+                trySend(s?.documents.orEmpty().map {
+                    Activity(it.id, it.getString("actor").orEmpty(), it.getString("text").orEmpty(), it.getLong("at") ?: 0,
+                        it.getString("expenseId"), (it.get("people") as? List<String>).orEmpty())
+                })
+            }
+        awaitClose { reg.remove() }
     }
 
     /** Push to the given people (never yourself). Queued so it still goes out after an offline edit. */
