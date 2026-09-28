@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -106,6 +107,11 @@ private fun GroupsTab(nav: NavViewModel) {
     var searching by remember { mutableStateOf(false) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     // Back: the first press hides the keyboard (the system does that) and keeps the text; the next one leaves the app.
+    // When the keyboard goes away, drop the focus too so the blinking cursor goes with it.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+    val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    androidx.compose.runtime.LaunchedEffect(imeVisible) { if (!imeVisible && searching) focusManager.clearFocus() }
     var filtering by remember { mutableStateOf(false) }
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var query by remember { mutableStateOf("") }

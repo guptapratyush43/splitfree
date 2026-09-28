@@ -90,6 +90,14 @@ fun AccountTab(nav: NavViewModel) {
         SettingRow("Notification settings", "Allow Split Free to notify you", Icons.Rounded.Notifications, onClick = {
             context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
         })
+        val xiaomiLike = Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco", "oppo", "vivo", "realme", "oneplus")
+        SettingRow(
+            "Battery & Autostart",
+            if (xiaomiLike) "Turn on Autostart and set Battery saver to “No restrictions” so notifications arrive on time"
+            else "Set battery to “Unrestricted” so notifications arrive on time",
+            Icons.Rounded.BatteryAlert, onClick = {
+                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+            })
         var checking by remember { mutableStateOf(false) }
         SettingRow("Check for updates", if (checking) "Checking…" else "You're on v${BuildConfig.VERSION_NAME}", Icons.Rounded.SystemUpdate, onClick = {
             if (!checking) {
@@ -102,14 +110,6 @@ fun AccountTab(nav: NavViewModel) {
                 }
             }
         })
-        val xiaomiLike = Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco", "oppo", "vivo", "realme", "oneplus")
-        SettingRow(
-            "Battery & autostart",
-            if (xiaomiLike) "Turn on Autostart and set Battery saver to “No restrictions” so notifications arrive on time"
-            else "Set battery to “Unrestricted” so notifications arrive on time",
-            Icons.Rounded.BatteryAlert, onClick = {
-                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
-            })
 
         Spacer(Modifier.height(10.dp))
         HairLine()
