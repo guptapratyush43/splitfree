@@ -328,6 +328,12 @@ object Repo {
         notify(g, e.involved, "New comment in ${g.name}", "${Auth.name} on $title: $text", e.id, screen = "comments")
     }
 
+    /** The one who owes tells the one they paid: "I've paid, please mark it as settled." Opens the payer's page for them. */
+    fun askToSettle(g: Group, lender: String, amount: Long) {
+        notify(g, listOf(lender), "Mark as settled?", "${Auth.name} says they've paid you ${Money.format(amount)} in ${g.name}. Tap to mark it as settled.",
+            null, force = true, screen = "member:${Auth.uid}")
+    }
+
     fun remind(g: Group, uid: String, amount: Long) {
         notify(g, listOf(uid), "Payment reminder", "${Auth.name} reminded you: you owe them ${Money.format(amount)} in ${g.name}", null, force = true, screen = "member")
     }

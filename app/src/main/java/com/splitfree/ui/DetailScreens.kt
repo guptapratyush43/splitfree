@@ -88,17 +88,34 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
         LaunchedEffect(toComments, comments.size) { if (toComments && comments.isNotEmpty()) list.animateScrollToItem(comments.size) }
         LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
             item {
+                // A payment that settled particular expenses shows what it was for, with that expense's icon.
+                val allHere by Repo.expenses.collectAsState()
+                val settledIds = e.inputs["settles"].orEmpty().split(',').filter { it.isNotBlank() }
+                val settled = settledIds.mapNotNull { id -> allHere[gid].orEmpty().firstOrNull { it.id == id } }
                 WarmCard(padding = 20.dp) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        CategoryBubble(if (e.settlement && e.category == com.splitfree.data.Category.GENERAL) "🤝" else e.category.emoji, 60.dp)
+                        CategoryBubble(when {
+                            settled.isNotEmpty() -> settled.first().category.emoji
+                            e.settlement && e.category == com.splitfree.data.Category.GENERAL -> "🤝"
+                            else -> e.category.emoji
+                        }, 60.dp)
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(if (e.settlement) "Payment" else e.title, style = MaterialTheme.typography.titleMedium,
+                            if (settled.isNotEmpty()) Text("This settlement was for", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                when {
+                                    settled.isNotEmpty() -> settled.joinToString(", ") { it.title }
+                                    e.settlement -> "Payment"
+                                    else -> e.title
+                                },
+                                style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             Spacer(Modifier.height(2.dp))
                             Text(Money.format(e.amount), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.height(6.dp))
-                            Text(whenText(e.date, e.createdAt), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (e.settlement) "Settled on ${settledAt(e.createdAt)}" else whenText(e.date, e.createdAt),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     if (e.note.isNotBlank()) {
@@ -181,6 +198,10 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
 }
 
 /** "28 Sep 2026, 6:47 PM": the day of the expense, with the time it was added when that was the same day. */
+/** "29 Sep 2026, 10:43 PM": the moment a payment was recorded. */
+private fun settledAt(ms: Long): String =
+    java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a", java.util.Locale.US).format(java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault()))
+
 private fun whenText(date: Long, created: Long): String {
     val zone = java.time.ZoneId.systemDefault()
     val d = java.time.Instant.ofEpochMilli(date).atZone(zone)

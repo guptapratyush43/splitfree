@@ -229,13 +229,15 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
         it.title.lowercase().contains(q) || it.note.lowercase().contains(q) || it.category.label.lowercase().contains(q)
     }
     var sort by rememberSaveable { mutableStateOf(ExpenseSort.DATE) }
-    // Date: by month. Recently added: newest entry first. Name: same titles together (Hostel, Hostel, Food…).
-    val sections: List<Pair<String, List<Expense>>> = when (sort) {
+    // Date: month, then each day under it. Recently added: newest entry first. Name: same titles together (Hostel, Hostel, Food…).
+    val byDate = sort == ExpenseSort.DATE
+    val sections: List<Pair<String, List<Pair<String?, List<Expense>>>>> = when (sort) {
         ExpenseSort.DATE -> shown.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.createdAt })
             .groupBy { monthFmt.format(zoned(it.date)) }.toList()
-        ExpenseSort.ADDED -> listOf("Newest first" to shown.sortedByDescending { it.createdAt })
+            .map { (m, list) -> m to list.groupBy { Fmt.day(it.date) }.toList().map { (d, l) -> (d as String?) to l } }
+        ExpenseSort.ADDED -> listOf("Newest first" to listOf(null to shown.sortedByDescending { it.createdAt }))
         ExpenseSort.NAME -> shown.groupBy { it.title.trim().lowercase() }.toList().sortedBy { it.first }
-            .map { (_, list) -> list.first().title.trim().replaceFirstChar { it.uppercase() } to list.sortedByDescending { it.date } }
+            .map { (_, list) -> list.first().title.trim().replaceFirstChar { it.uppercase() } to listOf(null to list.sortedByDescending { it.date }) }
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 110.dp)) {
 
@@ -250,19 +252,27 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
                 }
             }
         } else if (shown.isEmpty()) item { Footnote("Nothing matches “$query”.") }
-        sections.forEachIndexed { si, (month, list) ->
+        val move = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+        sections.forEachIndexed { si, (month, days) ->
             item(key = "m$sort$month") {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = if (si == 0) 0.dp else 10.dp, bottom = 8.dp)) {
-                    Text(month, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null).fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = if (si == 0) 0.dp else 10.dp, bottom = 6.dp)) {
+                    SectionLabel(month, Modifier.weight(1f).padding(bottom = 0.dp))
                     if (si == 0 && expenses.size > 1) SortCapsule(sort.label) { sort = ExpenseSort.entries[(sort.ordinal + 1) % ExpenseSort.entries.size] }
                 }
             }
-            items(list, key = { it.id }) { e ->
-                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null).padding(horizontal = 20.dp)) {
-                    ExpenseRow(group, e, showMonth = sort != ExpenseSort.DATE) { nav.push(Screen.Detail(group.id, e.id)) }
+            days.forEach { (day, list) ->
+                if (day != null) item(key = "d$sort$month$day") {
+                    Text(day, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null).padding(start = 24.dp, top = 4.dp, bottom = 8.dp))
                 }
-                Spacer(Modifier.height(8.dp))
+                items(list, key = { it.id }) { e ->
+                    // Re-sorting glides each card to its new place; the date column folds away under day headings.
+                    Column(Modifier.animateItem(fadeInSpec = null, placementSpec = move, fadeOutSpec = null).padding(horizontal = 20.dp)) {
+                        ExpenseRow(group, e, showDate = !byDate) { nav.push(Screen.Detail(group.id, e.id)) }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
             }
         }
     }
@@ -401,6 +411,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     val n = nets[uid] ?: 0
     var remind by remember { mutableStateOf<Debt?>(null) }
     var settle by remember { mutableStateOf<Debt?>(null) }
+    var paidIt by remember { mutableStateOf<Debt?>(null) }
     val live = all[gid].orEmpty().filter { !it.deleted }
     // Settled: everything they took part in. Otherwise: what is behind the current balance.
     val pending = if (n == 0L) settledFor(uid, live) else pendingFor(uid, live)
@@ -438,7 +449,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                 }
                 Spacer(Modifier.height(10.dp))
                 if (debts.any { it.to != me && it.from == me }) {
-                    Text("Only the person you owe can mark a payment as settled.", style = MaterialTheme.typography.bodySmall,
+                    Text("Only the person you owe can mark it as settled. Paid already? Tap I've paid to let them know.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
                 }
                 if (debts.isEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { BreathingCapsule("All settled up") }
@@ -463,6 +474,12 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                             ActionPill("Remind", { remind = d })
                             ActionPill("Mark as settled", { settle = d }, filled = true)
                         }
+                    } else if (d.from == me) {
+                        // You owe: nudge them to mark it as settled once you've paid.
+                        Spacer(Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), modifier = Modifier.fillMaxWidth()) {
+                            ActionPill("I've paid", { paidIt = d }, filled = true)
+                        }
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -470,7 +487,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
             if (pending.isNotEmpty()) item {
                 Spacer(Modifier.height(8.dp))
                 SectionLabel(if (n == 0L) "All settled up expenses" else "Pending expenses", Modifier.padding(bottom = 0.dp))
-                if (owedToMe.isNotEmpty()) Text("Long-press an expense to mark it as settled.", style = MaterialTheme.typography.bodySmall,
+                if (owedToMe.isNotEmpty()) Text("You can also long-press an expense you're owed to mark it as settled.", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
             }
             pending.groupBy { Fmt.day(it.first.date) }.entries.forEachIndexed { di, (day, list) ->
@@ -518,7 +535,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     }
     if (settlePicked) {
         val amount = minOf(pickedTotal, owedNow)
-        ConfirmDialog("Mark as settled?", "${group.name(uid, me)} paid you ${Money.format(amount)} for ${picked.size} ${if (picked.size == 1) "expense" else "expenses"}.", "Mark as settled",
+        ConfirmDialog("Mark as settled?", "${group.name(uid, me)} paid you ${Money.format(amount)} for ${picked.size} ${if (picked.size == 1) "expense" else "expenses"}.", "Settle",
             onConfirm = {
                 Repo.settle(group, uid, me, amount, System.currentTimeMillis(), picked.toList())
                 picked.clear(); Haptics.success(context); toast(context, "Marked as settled")
@@ -528,8 +545,12 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
         ConfirmDialog("Send a reminder?", "${group.name(d.from, me)} gets a notification that they owe you ${Money.format(d.amount)}.", "Remind",
             onConfirm = { Repo.remind(group, d.from, d.amount); toast(context, "Reminder sent") }, onDismiss = { remind = null }, danger = false)
     }
+    paidIt?.let { d ->
+        ConfirmDialog("Let them know?", "${group.name(d.to, me)} gets a reminder that you've paid ${Money.format(d.amount)}, so they can mark it as settled.", "Send",
+            onConfirm = { Repo.askToSettle(group, d.to, d.amount); toast(context, "Reminder sent") }, onDismiss = { paidIt = null }, danger = false)
+    }
     settle?.let { d ->
-        ConfirmDialog("Mark as settled?", "${group.name(d.from, me)} paid you ${Money.format(d.amount)}. This clears it from the balances.", "Mark as settled",
+        ConfirmDialog("Mark as settled?", "${group.name(d.from, me)} paid you ${Money.format(d.amount)}. This clears it from the balances.", "Settle",
             onConfirm = {
                 Repo.settle(group, d.from, d.to, d.amount, System.currentTimeMillis())
                 Haptics.success(context); toast(context, "Marked as settled")
@@ -699,17 +720,25 @@ private fun TotalLine(label: String, value: Long) {
 
 /** One expense: date column, category, title with who paid, and what it means for you. */
 @Composable
-fun ExpenseRow(group: Group, e: Expense, showGroup: Boolean = false, showMonth: Boolean = true, onClick: () -> Unit) {
+fun ExpenseRow(group: Group, e: Expense, showGroup: Boolean = false, showDate: Boolean = true, onClick: () -> Unit) {
     val me = Auth.uid
     val z = zoned(e.date)
     WarmCard(onClick = onClick, padding = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(34.dp)) {
-                // Under a month heading the month is not repeated; the weekday takes its place.
-                Text(if (showMonth) monShort.format(z) else weekShort.format(z), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(dayNum.format(z), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
+            // Under day headings the date is already shown: the column folds away and the rest slides left.
+            androidx.compose.animation.AnimatedVisibility(showDate,
+                enter = androidx.compose.animation.expandHorizontally(androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(280)),
+                exit = androidx.compose.animation.shrinkHorizontally(androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(34.dp)) {
+                        Text(monShort.format(z), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(dayNum.format(z), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                }
             }
-            Spacer(Modifier.width(10.dp))
             CategoryBubble(if (e.settlement && e.category == com.splitfree.data.Category.GENERAL) "🤝" else e.category.emoji, 40.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {

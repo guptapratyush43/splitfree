@@ -141,6 +141,7 @@ fun AppRoot(nav: NavViewModel) {
             Screen.Backup -> BackupScreen(nav)
             is Screen.Member -> MemberScreen(nav, s.groupId, s.uid)
             Screen.EditProfile -> EditProfileScreen(nav)
+            Screen.Scan -> ScanScreen(nav)
         } } } }
 
         ToastHost(Modifier.align(Alignment.BottomCenter))

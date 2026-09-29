@@ -47,6 +47,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.PersonAdd
@@ -206,7 +209,7 @@ private fun GroupsTab(nav: NavViewModel) {
                         style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
-                    SortCapsule(filters[filter]) { filter = (filter + 1) % filters.size }
+                    SortMenu(filter) { filter = it }
                 }
             }
             if (invites.isNotEmpty()) {
@@ -228,7 +231,11 @@ private fun GroupsTab(nav: NavViewModel) {
             }
         }
 
-        FloatingAdd("New group", Icons.Rounded.GroupAdd, { creating = true }, Modifier.align(Alignment.BottomEnd).padding(20.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
+            ScanPill { nav.push(Screen.Scan) }
+            FloatingAdd("New group", Icons.Rounded.GroupAdd, { creating = true })
+        }
     }
 
     if (creating) NewGroupDialog(onDismiss = { creating = false }) { id -> creating = false; nav.push(Screen.Group(id)) }
@@ -324,6 +331,78 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
                     CardAction("Share link", Icons.Rounded.Share) { onCloseMenu(); com.splitfree.ui.shareInviteLink(ctx, g) }
                     CardAction("QR code", Icons.Rounded.QrCode2) { onCloseMenu(); onQr() }
+                }
+            }
+        }
+    }
+}
+
+/** "Scan QR": the lighter partner of the New group button, same height and shape. */
+@Composable
+private fun ScanPill(onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val ctx = LocalContext.current
+    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pill = androidx.compose.foundation.shape.RoundedCornerShape(50)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.pressScale(src)
+            .shadow(8.dp, pill, ambientColor = scheme.primary, spotColor = scheme.primary)
+            .clip(pill).background(scheme.surface, pill).border(1.dp, scheme.primary.copy(alpha = 0.35f), pill)
+            .clickable(interactionSource = src, indication = null) { Haptics.press(ctx); onClick() }
+            .padding(horizontal = 18.dp, vertical = 15.dp)
+    ) {
+        Icon(Icons.Rounded.QrCodeScanner, null, tint = scheme.primary, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Scan QR", style = MaterialTheme.typography.titleSmall, color = scheme.primary)
+    }
+}
+
+private val filterNames = listOf("All groups", "Outstanding balances", "Groups you owe", "Groups that owe you")
+
+/**
+ * Sort capsule whose options unfold out of it (scale + fade from its corner),
+ * like a small menu; picking one folds it back.
+ */
+@Composable
+private fun SortMenu(selected: Int, onPick: (Int) -> Unit) {
+    val ctx = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    val vis = remember { androidx.compose.animation.core.MutableTransitionState(false) }
+    vis.targetState = open
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    Box {
+        SortCapsule(filters[selected]) { open = true }
+        if (vis.currentState || vis.targetState) androidx.compose.ui.window.Popup(
+            alignment = Alignment.TopEnd,
+            offset = with(density) { androidx.compose.ui.unit.IntOffset(0, 34.dp.roundToPx()) },
+            onDismissRequest = { open = false },
+            properties = androidx.compose.ui.window.PopupProperties(focusable = true)
+        ) {
+            val origin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+            androidx.compose.animation.AnimatedVisibility(vis,
+                enter = androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing), initialScale = 0.6f, transformOrigin = origin) +
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)),
+                exit = androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(150), targetScale = 0.7f, transformOrigin = origin) +
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(130))) {
+                val shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+                Column(
+                    Modifier.padding(4.dp).width(230.dp).shadow(14.dp, shape).clip(shape)
+                        .background(MaterialTheme.colorScheme.surface, shape)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, shape).padding(vertical = 6.dp)
+                ) {
+                    filterNames.forEachIndexed { i, label ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { Haptics.tick(ctx); onPick(i); open = false }
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Text(label, style = MaterialTheme.typography.bodyLarge,
+                                color = if (i == selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f))
+                            if (i == selected) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        }
+                    }
                 }
             }
         }
