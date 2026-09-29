@@ -83,6 +83,7 @@ import kotlin.math.abs
 private val monthFmt = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.US)
 private val monShort = DateTimeFormatter.ofPattern("MMM", Locale.US)
 private val dayNum = DateTimeFormatter.ofPattern("dd", Locale.US)
+private val weekShort = DateTimeFormatter.ofPattern("EEE", Locale.US)
 private fun zoned(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault())
 
 private val tabNames = listOf("Expenses", "Balances", "Totals")
@@ -101,9 +102,10 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
         // little before deciding it's gone (removed from it, or deleted).
         LaunchedEffect(loaded, seen) {
             if (!loaded) return@LaunchedEffect
-            if (!seen) kotlinx.coroutines.delay(4000)
+            if (!seen) kotlinx.coroutines.delay(8000)
             nav.home()
         }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Footnote("Opening group…") }
         return
     }
     LaunchedEffect(group.name) { com.splitfree.data.Cover.ensure(group) }
@@ -229,18 +231,14 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
     var sort by rememberSaveable { mutableStateOf(ExpenseSort.DATE) }
     // Date: by month. Recently added: newest entry first. Name: same titles together (Hostel, Hostel, Food…).
     val sections: List<Pair<String, List<Expense>>> = when (sort) {
-        ExpenseSort.DATE -> shown.sortedByDescending { it.date }.groupBy { monthFmt.format(zoned(it.date)) }.toList()
+        ExpenseSort.DATE -> shown.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.createdAt })
+            .groupBy { monthFmt.format(zoned(it.date)) }.toList()
         ExpenseSort.ADDED -> listOf("Newest first" to shown.sortedByDescending { it.createdAt })
         ExpenseSort.NAME -> shown.groupBy { it.title.trim().lowercase() }.toList().sortedBy { it.first }
             .map { (_, list) -> list.first().title.trim().replaceFirstChar { it.uppercase() } to list.sortedByDescending { it.date } }
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 110.dp)) {
-        if (expenses.size > 1) item(key = "sort") {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 20.dp, bottom = 6.dp)) {
-                Spacer(Modifier.weight(1f))
-                SortCapsule(sort.label) { sort = ExpenseSort.entries[(sort.ordinal + 1) % ExpenseSort.entries.size] }
-            }
-        }
+
         if (searching) item { Box(Modifier.padding(horizontal = 20.dp)) { Field(query, onQuery, placeholder = "Search this group") }; Spacer(Modifier.height(12.dp)) }
         if (expenses.isEmpty()) item {
             EmptyState(Icons.Rounded.ReceiptLong, "No expenses here yet",
@@ -252,10 +250,18 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
                 }
             }
         } else if (shown.isEmpty()) item { Footnote("Nothing matches “$query”.") }
-        sections.forEach { (month, list) ->
-            item(key = "m$sort$month") { SectionLabel(month, Modifier.padding(start = 24.dp, top = 4.dp)) }
+        sections.forEachIndexed { si, (month, list) ->
+            item(key = "m$sort$month") {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = if (si == 0) 0.dp else 10.dp, bottom = 8.dp)) {
+                    Text(month, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (si == 0 && expenses.size > 1) SortCapsule(sort.label) { sort = ExpenseSort.entries[(sort.ordinal + 1) % ExpenseSort.entries.size] }
+                }
+            }
             items(list, key = { it.id }) { e ->
-                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null).padding(horizontal = 20.dp)) { ExpenseRow(group, e) { nav.push(Screen.Detail(group.id, e.id)) } }
+                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null).padding(horizontal = 20.dp)) {
+                    ExpenseRow(group, e, showMonth = sort != ExpenseSort.DATE) { nav.push(Screen.Detail(group.id, e.id)) }
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
@@ -408,9 +414,10 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
         save = { it.toList() }, restore = { androidx.compose.runtime.mutableStateListOf<String>().apply { addAll(it) } }
     )) { androidx.compose.runtime.mutableStateListOf<String>() }
     LaunchedEffect(owedToMe.keys) { picked.retainAll(owedToMe.keys) }
-    // Circles slide in a moment after the page opens, nudging the amounts left.
-    var showPick by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { kotlinx.coroutines.delay(250); showPick = true }
+    // Long-press an expense to start picking; circles slide in and nudge the amounts left.
+    var selecting by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(picked.size) { if (picked.isEmpty()) selecting = false }
+    androidx.activity.compose.BackHandler(selecting) { picked.clear(); selecting = false }
     var settlePicked by remember { mutableStateOf(false) }
     val pickedTotal = picked.sumOf { owedToMe[it] ?: 0L }
     val owedNow = debts.filter { it.from == uid && it.to == me }.sumOf { it.amount }
@@ -463,7 +470,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
             if (pending.isNotEmpty()) item {
                 Spacer(Modifier.height(8.dp))
                 SectionLabel(if (n == 0L) "All settled up expenses" else "Pending expenses", Modifier.padding(bottom = 0.dp))
-                if (owedToMe.isNotEmpty()) Text("Select expenses to mark as settled.", style = MaterialTheme.typography.bodyMedium,
+                if (owedToMe.isNotEmpty()) Text("Long-press an expense to mark it as settled.", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
             }
             pending.groupBy { Fmt.day(it.first.date) }.entries.forEachIndexed { di, (day, list) ->
@@ -471,7 +478,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp)) {
                         Text(day, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f).padding(start = 4.dp))
-                        if (di == 0 && owedToMe.isNotEmpty()) {
+                        if (di == 0 && owedToMe.isNotEmpty() && selecting) {
                             val allOn = picked.size == owedToMe.size
                             val ctx = androidx.compose.ui.platform.LocalContext.current
                             Text(if (allOn) "Deselect all" else "Select all", style = MaterialTheme.typography.labelLarge,
@@ -484,8 +491,11 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                 }
                 items(list, key = { "p" + it.first.id }) { (e, effect) ->
                     val pickable = e.id in owedToMe
-                    PendingRow(group, e, effect, uid, me, pickable = pickable && showPick, picked = e.id in picked,
-                        onPick = { if (e.id in picked) picked.remove(e.id) else picked.add(e.id) }) { nav.push(Screen.Detail(gid, e.id)) }
+                    val toggle = { if (e.id in picked) picked.remove(e.id) else picked.add(e.id); Unit }
+                    PendingRow(group, e, effect, uid, me, pickable = pickable && selecting, picked = e.id in picked, onPick = toggle,
+                        onLongClick = if (pickable) ({ selecting = true; if (e.id !in picked) picked.add(e.id) }) else null) {
+                        if (selecting && pickable) toggle() else nav.push(Screen.Detail(gid, e.id))
+                    }
                     Spacer(Modifier.height(8.dp))
                 }
             }
@@ -530,8 +540,8 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
 /** One expense behind a member's balance: category, title, who added it and what it means for them. */
 @Composable
 private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: String,
-                       pickable: Boolean = false, picked: Boolean = false, onPick: () -> Unit = {}, onClick: () -> Unit) {
-    WarmCard(onClick = onClick, padding = 12.dp) {
+                       pickable: Boolean = false, picked: Boolean = false, onPick: () -> Unit = {}, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+    WarmCard(onClick = onClick, onLongClick = onLongClick, padding = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CategoryBubble(if (e.settlement && e.category == com.splitfree.data.Category.GENERAL) "🤝" else e.category.emoji, 40.dp)
             Spacer(Modifier.width(12.dp))
@@ -689,13 +699,14 @@ private fun TotalLine(label: String, value: Long) {
 
 /** One expense: date column, category, title with who paid, and what it means for you. */
 @Composable
-fun ExpenseRow(group: Group, e: Expense, showGroup: Boolean = false, onClick: () -> Unit) {
+fun ExpenseRow(group: Group, e: Expense, showGroup: Boolean = false, showMonth: Boolean = true, onClick: () -> Unit) {
     val me = Auth.uid
     val z = zoned(e.date)
     WarmCard(onClick = onClick, padding = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(34.dp)) {
-                Text(monShort.format(z), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Under a month heading the month is not repeated; the weekday takes its place.
+                Text(if (showMonth) monShort.format(z) else weekShort.format(z), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(dayNum.format(z), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
             }
             Spacer(Modifier.width(10.dp))

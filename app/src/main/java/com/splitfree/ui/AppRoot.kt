@@ -43,7 +43,43 @@ import com.splitfree.data.Recurring
 import com.splitfree.data.Repo
 import kotlinx.coroutines.launch
 
-fun toast(context: android.content.Context, msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+/**
+ * Short messages at the bottom of the screen. Drawn by the app itself (not the
+ * system toast, which shows a launcher icon some phones cache from old versions).
+ */
+object Toasts {
+    data class Msg(val text: String, val quiet: Boolean, val at: Long = System.nanoTime())
+    val current = kotlinx.coroutines.flow.MutableStateFlow<Msg?>(null)
+    fun show(msg: String, quiet: Boolean = false) { current.value = Msg(msg, quiet) }
+}
+
+@Suppress("UNUSED_PARAMETER")
+fun toast(context: android.content.Context, msg: String) = Toasts.show(msg)
+
+@Composable
+private fun ToastHost(modifier: Modifier) {
+    val current by Toasts.current.collectAsStateWithLifecycle()
+    var shown by remember { mutableStateOf<Toasts.Msg?>(null) }
+    LaunchedEffect(current) {
+        val c = current ?: return@LaunchedEffect
+        shown = c
+        kotlinx.coroutines.delay(2200)
+        shown = null
+    }
+    var last by remember { mutableStateOf(Toasts.Msg("", false)) }
+    if (shown != null) last = shown!!
+    androidx.compose.animation.AnimatedVisibility(shown != null, modifier,
+        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(220)) { it / 2 },
+        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) {
+        // Quiet messages ("No invitations at the moment") are smaller and faded.
+        Text(last.text, style = if (last.quiet) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.background.copy(alpha = if (last.quiet) 0.9f else 1f),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 96.dp)
+                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = if (last.quiet) 0.55f else 0.92f), androidx.compose.foundation.shape.RoundedCornerShape(50))
+                .padding(horizontal = if (last.quiet) 14.dp else 18.dp, vertical = if (last.quiet) 8.dp else 11.dp))
+    }
+}
 
 @Composable
 fun AppRoot(nav: NavViewModel) {
@@ -107,6 +143,8 @@ fun AppRoot(nav: NavViewModel) {
             Screen.EditProfile -> EditProfileScreen(nav)
         } } } }
 
+        ToastHost(Modifier.align(Alignment.BottomCenter))
+
         // Opened from an invite notification: answer it right here.
         val showInvites by nav.showInvites.collectAsStateWithLifecycle()
         val invites by Repo.invites.collectAsStateWithLifecycle()
@@ -125,7 +163,7 @@ fun AppRoot(nav: NavViewModel) {
             if (invites.isEmpty()) Footnote("Loading your invitation…")
             invites.forEachIndexed { i, inv ->
                 if (i > 0) Spacer(Modifier.height(10.dp))
-                InviteCard(inv)
+                InviteCard(inv) { gid -> nav.push(Screen.Group(gid)) }
             }
         }
 

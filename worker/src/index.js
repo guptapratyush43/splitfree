@@ -8,7 +8,7 @@ let accessToken = null; // { token, exp }
 let jwks = null; // { keys, exp }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     try {
       if (req.method === "GET" && url.pathname === "/.well-known/assetlinks.json") return assetLinks(env);
@@ -28,7 +28,7 @@ export default {
       };
       const fn = routes[url.pathname];
       if (!fn) return json({ error: "Not found" }, 404);
-      return json(await fn(env, user, body));
+      return json(await fn(env, user, body, ctx));
     } catch (e) {
       const status = e.status || 500;
       if (status >= 500) console.error(e.stack || e);
@@ -71,7 +71,7 @@ async function notify(env, user, b) {
   return { sent };
 }
 
-async function respondInvite(env, user, b) {
+async function respondInvite(env, user, b, ctx) {
   const inv = await getDoc(env, `invites/${b.inviteId}`);
   if (!inv || inv.toEmail !== user.email) fail(403, "This invite isn't for you");
   if (inv.status !== "pending") fail(409, "This invite was already answered");
@@ -101,10 +101,10 @@ async function respondInvite(env, user, b) {
       data: { groupId: inv.groupId },
     });
   }
-  return { ok: true, name: g.name };
+  return { ok: true, name: g.name, groupId: inv.groupId };
 }
 
-async function joinGroup(env, user, b) {
+async function joinGroup(env, user, b, ctx) {
   const g = await getGroup(env, b.groupId);
   if (!b.code || g.joinCode !== b.code) fail(403, "This invite link is no longer valid");
   if (g.members.includes(user.uid)) return { name: g.name };
@@ -187,7 +187,7 @@ async function pushTo(env, u, { title, body, data }) {
         token,
         notification: { title, body },
         data: Object.fromEntries(Object.entries(data || {}).map(([k, v]) => [k, String(v ?? "")])),
-        android: { priority: "HIGH", notification: { channel_id: "alerts", icon: "ic_stat_split", color: "#5B3FD1" } },
+        android: { priority: "HIGH", notification: { channel_id: "alerts", icon: "ic_stat_split", color: "#C15F3C" } },
       },
     }, true);
     if (r.ok) sent++;
@@ -229,8 +229,8 @@ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:c
 .card{max-width:380px;width:100%;background:#fff;border:1px solid #DFDACD;border-radius:16px;padding:28px;text-align:center}
 h1{font-family:Georgia,serif;font-weight:400;font-size:28px;margin:8px 0}
 p{color:#5C5A54;line-height:1.5}
-a.btn{display:block;background:#5B3FD1;color:#fff;text-decoration:none;padding:15px;border-radius:14px;margin-top:20px;font-weight:600}
-@media (prefers-color-scheme:dark){body{background:#1F1E1D;color:#F5F4EF}.card{background:#262624;border-color:#413F3B}p{color:#B4B0A6}a.btn{background:#B3A2FF;color:#1C1340}}
+a.btn{display:block;background:#C15F3C;color:#fff;text-decoration:none;padding:15px;border-radius:14px;margin-top:20px;font-weight:600}
+@media (prefers-color-scheme:dark){body{background:#1F1E1D;color:#F5F4EF}.card{background:#262624;border-color:#413F3B}p{color:#B4B0A6}a.btn{background:#D97757;color:#2B1710}}
 </style></head><body><div class="card"><div style="font-size:44px">₹</div><h1>Join the group</h1>
 <p>You've been invited to a group on Split Free. Open it in the app to join.</p>
 <a class="btn" href="${intent}">Open in Split Free</a>

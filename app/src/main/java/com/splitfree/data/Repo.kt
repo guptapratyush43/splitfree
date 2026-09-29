@@ -225,9 +225,10 @@ object Repo {
         group(g.id).update("invited", FieldValue.arrayRemove(email))
     }
 
-    suspend fun respond(invite: Invite, accept: Boolean) {
+    /** Answers an invite once the server confirms; returns the group's id. */
+    suspend fun respond(invite: Invite, accept: Boolean): String =
         Api.post("/api/invite/respond", JSONObject().put("inviteId", invite.id).put("accept", accept))
-    }
+            .optString("groupId").ifBlank { invite.groupId }
 
     suspend fun join(gid: String, code: String): String =
         Api.post("/api/group/join", JSONObject().put("groupId", gid).put("code", code)).optString("name")
@@ -250,8 +251,17 @@ object Repo {
         val what = if (e.settlement) settleText(g, e) else "“${e.title}” (${Money.format(e.amount)})"
         val text = if (e.settlement) "$me marked as settled: $what" else if (isNew) "$me added $what" else "$me edited $what"
         log(g.id, text, e.id, e.involved)
+        // Added for someone else: say who paid, then who entered it on their behalf.
+        val payers = e.paid.keys.map { g.info[it]?.name ?: "Someone" }
+        val payerText = if (payers.size <= 2) payers.joinToString(" and ") else "${payers.size} people"
+        val selfPaid = Auth.uid in e.paid.keys
+        val body = when {
+            e.settlement -> "$me marked as settled: $what"
+            selfPaid -> "$me ${if (isNew) "added" else "edited"} $what. You're included."
+            else -> "$payerText paid $what. You're included. ${if (isNew) "Added" else "Edited"} by $me on behalf of $payerText."
+        }
         notify(g, e.involved, if (e.settlement) "Payment marked as settled" else if (isNew) "New expense in ${g.name}" else "Expense edited in ${g.name}",
-            if (e.settlement) "$me marked as settled: $what" else "$me ${if (isNew) "added" else "edited"} $what${yourShare(e)}", e.id,
+            body, e.id,
             screen = if (e.settlement) "member" else "expense")
     }
 

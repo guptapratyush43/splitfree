@@ -85,8 +85,8 @@ object UpdateManager {
      * passed). A version the user ignored is never offered again; only a newer one is.
      */
     suspend fun checkOnLaunch() {
-        val now = System.currentTimeMillis()
-        if (now - prefs.getLong("last_check", 0L) >= DAY) runCatching { checkInBackground() }
+        // Every launch asks GitHub; offline, it falls back to what the daily check found.
+        runCatching { checkInBackground() }
         val release = remembered() ?: return
         val ignored = prefs.getString("ignored", null)
         if (isNewer(release.version, currentVersion) && (ignored == null || isNewer(release.version, ignored))) {

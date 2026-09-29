@@ -47,6 +47,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.rounded.QrCode2
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.rounded.Notifications
@@ -134,8 +136,8 @@ private fun GroupsTab(nav: NavViewModel) {
     val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
     androidx.compose.runtime.LaunchedEffect(imeVisible) { if (!imeVisible && searching) focusManager.clearFocus() }
     var filter by rememberSaveable { mutableIntStateOf(0) }
-    var menuFor by remember { mutableStateOf<Group?>(null) }
-    var linkFor by remember { mutableStateOf<Group?>(null) }
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    var qrFor by remember { mutableStateOf<Group?>(null) }
     var query by remember { mutableStateOf("") }
     val me = Auth.uid
 
@@ -179,7 +181,8 @@ private fun GroupsTab(nav: NavViewModel) {
                 }.take(50)
                 if (groupHits.isNotEmpty()) item { SectionLabel("Groups", Modifier.padding(start = 20.dp, top = 18.dp)) }
                 items(groupHits, key = { "gh" + it.id }) { g ->
-                    GroupRow(g, nets[g.id] ?: 0, hasExpenses[g.id] == true, debtsByGroup[g.id].orEmpty(), { menuFor = g }) { nav.push(Screen.Group(g.id)) }
+                    GroupRow(g, nets[g.id] ?: 0, hasExpenses[g.id] == true, debtsByGroup[g.id].orEmpty(), { menuFor = g.id },
+                        menuFor == g.id, { menuFor = null }, { qrFor = g }) { nav.push(Screen.Group(g.id)) }
                 }
                 if (hits.isNotEmpty()) item { SectionLabel("Expenses", Modifier.padding(start = 20.dp, top = 18.dp)) }
                 items(hits, key = { "eh" + it.second.id }) { (g, e) ->
@@ -207,7 +210,7 @@ private fun GroupsTab(nav: NavViewModel) {
                 }
             }
             if (invites.isNotEmpty()) {
-                items(invites, key = { "inv" + it.id }) { Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) { InviteCard(it) } }
+                items(invites, key = { "inv" + it.id }) { Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) { InviteCard(it) { gid -> nav.push(Screen.Group(gid)) } } }
             }
             if (loaded && groups.isEmpty()) item {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 28.dp)) {
@@ -220,7 +223,8 @@ private fun GroupsTab(nav: NavViewModel) {
             }
             if (groups.isNotEmpty() && visible.isEmpty()) item { Spacer(Modifier.height(20.dp)); Footnote("No groups match this filter.") }
             items(visible, key = { it.id }) { g ->
-                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) { GroupRow(g, nets[g.id] ?: 0, hasExpenses[g.id] == true, debtsByGroup[g.id].orEmpty(), { menuFor = g }) { nav.push(Screen.Group(g.id)) } }
+                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) { GroupRow(g, nets[g.id] ?: 0, hasExpenses[g.id] == true, debtsByGroup[g.id].orEmpty(), { menuFor = g.id },
+                    menuFor == g.id, { menuFor = null }, { qrFor = g }) { nav.push(Screen.Group(g.id)) } }
             }
         }
 
@@ -228,14 +232,9 @@ private fun GroupsTab(nav: NavViewModel) {
     }
 
     if (creating) NewGroupDialog(onDismiss = { creating = false }) { id -> creating = false; nav.push(Screen.Group(id)) }
-    menuFor?.let { g ->
-        WarmDialog(g.name, onDismiss = { menuFor = null }) {
-            ListCard {
-                SettingRow("Add members", "Share a link or show a QR code", Icons.Rounded.PersonAdd, onClick = { menuFor = null; linkFor = g })
-            }
-        }
-    }
-    linkFor?.let { g -> InviteLinkSheet(g) { linkFor = null } }
+    qrFor?.let { g -> InviteQrDialog(g) { qrFor = null } }
+    // Back closes an open card panel first.
+    androidx.activity.compose.BackHandler(menuFor != null) { menuFor = null }
 }
 
 @Composable
@@ -257,7 +256,8 @@ fun NewGroupDialog(onDismiss: () -> Unit, onCreated: (String) -> Unit) {
  */
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt>, onLongClick: () -> Unit = {}, onClick: () -> Unit) {
+private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt>, onLongClick: () -> Unit = {},
+                     menuOpen: Boolean = false, onCloseMenu: () -> Unit = {}, onQr: () -> Unit = {}, onClick: () -> Unit) {
     val me = Auth.uid
     val others = g.members.filter { it != me }.map { g.info[it]?.name?.substringBefore(' ')?.ifBlank { null } ?: "Someone" }
     val W = androidx.compose.ui.graphics.Color.White
@@ -269,7 +269,7 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
             .pressScale(src).clip(shape)
             .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(groupTint(g.id), groupTint(g.id).copy(alpha = 0.7f))))
             .combinedClickable(interactionSource = src, indication = null,
-                onLongClick = { Haptics.press(ctx); onLongClick() }) { Haptics.tick(ctx); onClick() }
+                onLongClick = { Haptics.press(ctx); onLongClick() }) { Haptics.tick(ctx); if (menuOpen) onCloseMenu() else onClick() }
     ) {
         if (g.cover.isNotBlank()) coil.compose.AsyncImage(
             model = g.cover, contentDescription = null,
@@ -310,6 +310,41 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
                 }
             }
         }
+        // Long press: the card darkens and offers ways to add people, right where you pressed.
+        androidx.compose.animation.AnimatedVisibility(menuOpen, Modifier.matchParentSize(),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))) {
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.62f))) {
+                Text("Add members", style = MaterialTheme.typography.titleMedium, color = W,
+                    modifier = Modifier.align(Alignment.TopStart).padding(start = 18.dp, top = 16.dp))
+                Box(Modifier.align(Alignment.TopEnd).padding(8.dp).size(36.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                    .clickable { Haptics.tick(ctx); onCloseMenu() }, contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Close, "Close", tint = W, modifier = Modifier.size(20.dp))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                    CardAction("Share link", Icons.Rounded.Share) { onCloseMenu(); com.splitfree.ui.shareInviteLink(ctx, g) }
+                    CardAction("QR code", Icons.Rounded.QrCode2) { onCloseMenu(); onQr() }
+                }
+            }
+        }
+    }
+}
+
+/** White capsule button on the darkened card. */
+@Composable
+private fun CardAction(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.height(42.dp).pressScale(src).clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+            .background(androidx.compose.ui.graphics.Color.White)
+            .clickable(interactionSource = src, indication = null) { Haptics.tick(ctx); onClick() }
+            .padding(horizontal = 16.dp)
+    ) {
+        Icon(icon, null, tint = androidx.compose.ui.graphics.Color(0xFF1F1E1D), modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MaterialTheme.typography.titleSmall, color = androidx.compose.ui.graphics.Color(0xFF1F1E1D))
     }
 }
 
@@ -422,7 +457,7 @@ private fun Mist(list: androidx.compose.foundation.lazy.LazyListState) {
 
 /** "Invitations" capsule: soft rings ripple around it while one is waiting for your answer. */
 @Composable
-private fun InvitationsCapsule(nav: NavViewModel) {
+private fun InvitationsCapsule(onOpen: () -> Unit) {
     val invites by Repo.invites.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
@@ -438,8 +473,7 @@ private fun InvitationsCapsule(nav: NavViewModel) {
             .border(1.dp, if (pending) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline, pill)
             .clickable(interactionSource = src, indication = null) {
                 Haptics.tick(ctx)
-                if (pending) nav.showInvites.value = true
-                else android.widget.Toast.makeText(ctx, "No pending invitations", android.widget.Toast.LENGTH_SHORT).show()
+                if (pending) onOpen() else Toasts.show("No invitations at the moment", quiet = true)
             }
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
@@ -450,10 +484,12 @@ private fun InvitationsCapsule(nav: NavViewModel) {
 }
 
 @Composable
-fun InviteCard(invite: Invite) {
+fun InviteCard(invite: Invite, onJoined: (String) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var joining by remember { mutableStateOf(true) }
+    var failed by remember { mutableStateOf<String?>(null) }
     WarmCard(background = MaterialTheme.colorScheme.primaryContainer, borderColor = MaterialTheme.colorScheme.primaryContainer) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.MailOutline, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
@@ -463,19 +499,51 @@ fun InviteCard(invite: Invite) {
                 RowBody("${invite.fromName} invited you to join")
             }
         }
+        androidx.compose.animation.AnimatedVisibility(failed != null) {
+            Text(failed.orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 12.dp))
+        }
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             fun answer(accept: Boolean) {
-                busy = true
+                busy = true; joining = accept; failed = null
                 scope.launch {
                     try {
-                        Repo.respond(invite, accept)
-                        toast(context, if (accept) "You joined ${invite.groupName}" else "Invite declined")
-                    } catch (e: Exception) { toast(context, Api.friendly(e)) } finally { busy = false }
+                        // Up to three tries, one after another (no answer in 15 s counts as a failed try).
+                        // "Already answered" after a try that timed out means that try went through.
+                        var gid: String? = null
+                        var last: Exception? = null
+                        for (attempt in 1..3) {
+                            try {
+                                gid = kotlinx.coroutines.withTimeout(15_000) { Repo.respond(invite, accept) }
+                                break
+                            } catch (e: com.splitfree.data.ApiException) {
+                                if (e.code == 409 && attempt > 1) { gid = invite.groupId; break }
+                                last = e
+                                if (e.code in 400..499) break
+                            } catch (e: Exception) {
+                                if (e is kotlinx.coroutines.CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
+                                last = e
+                            }
+                            if (attempt < 3) kotlinx.coroutines.delay(1500L * attempt)
+                        }
+                        if (gid == null) throw last ?: java.io.IOException("No reply")
+                        if (accept) { toast(context, "You joined ${invite.groupName}"); onJoined(gid) } else toast(context, "Invite declined")
+                    } catch (e: Exception) {
+                        failed = if (accept) "Couldn't join ${invite.groupName}. Ask ${invite.fromName} to invite you again."
+                        else "Couldn't decline the invite. Please try again."
+                    } finally { busy = false }
                 }
             }
-            SecondaryButton("Reject", null, { answer(false) }, Modifier.weight(1f), enabled = !busy)
-            PrimaryButton("Accept", null, { answer(true) }, Modifier.weight(1f), enabled = !busy)
+            // While the server answers, the pressed button shows a spinner instead of its label.
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                SecondaryButton(if (busy && !joining) " " else "Reject", null, { answer(false) }, Modifier.fillMaxWidth(), enabled = !busy)
+                if (busy && !joining) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                PrimaryButton(if (busy && joining) " " else "Accept", null, { answer(true) }, Modifier.fillMaxWidth(), enabled = !busy)
+                if (busy && joining) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
+            }
         }
     }
 }
@@ -513,6 +581,9 @@ private fun SearchCapsule(
 @Composable
 private fun ActivityTab(nav: NavViewModel) {
     val groups by Repo.groups.collectAsStateWithLifecycle()
+    val invites by Repo.invites.collectAsStateWithLifecycle()
+    var showInv by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(invites.isEmpty()) { if (invites.isEmpty()) showInv = false }
     val ids = groups.map { it.id }
     val flow = remember(ids) {
         if (ids.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
@@ -527,10 +598,20 @@ private fun ActivityTab(nav: NavViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 6.dp)) {
                 Text("Activity", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f))
-                InvitationsCapsule(nav)
+                InvitationsCapsule { showInv = !showInv }
             }
             HairLine()
             Spacer(Modifier.height(10.dp))
+        }
+        // Tapping "Invitations" shows each waiting invite as a card to accept or reject.
+        if (showInv && invites.isNotEmpty()) {
+            item(key = "invlabel") { SectionLabel("Invitations", Modifier.padding(start = 24.dp, top = 4.dp)) }
+            items(invites, key = { "ai" + it.id }) { inv ->
+                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null).padding(horizontal = 20.dp, vertical = 6.dp)) {
+                    InviteCard(inv) { gid -> nav.push(Screen.Group(gid)) }
+                }
+            }
+            item(key = "invgap") { Spacer(Modifier.height(10.dp)) }
         }
         when {
             items == null -> item { Spacer(Modifier.height(24.dp)); Footnote("Loading…") }

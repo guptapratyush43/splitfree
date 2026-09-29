@@ -246,6 +246,25 @@ fun GroupSettingsScreen(nav: NavViewModel, gid: String) {
     }
 }
 
+/** Opens the share sheet with the group's join link. */
+fun shareInviteLink(context: android.content.Context, group: com.splitfree.data.Group) {
+    val link = "${BuildConfig.API_URL}/j/${group.id}/${group.joinCode}"
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "Join “${group.name}” on Split Free: $link")
+    context.startActivity(Intent.createChooser(send, "Share invite link"))
+}
+
+/** The join link as a QR code to scan. */
+@Composable
+fun InviteQrDialog(group: com.splitfree.data.Group, onDismiss: () -> Unit) {
+    val link = "${BuildConfig.API_URL}/j/${group.id}/${group.joinCode}"
+    WarmDialog("Scan to join", onDismiss = onDismiss) {
+        val bmp = remember(link) { qr(link, 720) }
+        Image(bmp.asImageBitmap(), "Invite QR code", Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color.White, RoundedCornerShape(12.dp)).padding(12.dp))
+        Spacer(Modifier.height(12.dp))
+        Footnote("Opens “${group.name}” in Split Free.")
+    }
+}
+
 /** "Invite via link": share the join link or show it as a QR code. */
 @Composable
 fun InviteLinkSheet(group: com.splitfree.data.Group, onDismiss: () -> Unit) {
