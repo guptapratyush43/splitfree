@@ -112,7 +112,6 @@ fun ExpenseEditor(nav: NavViewModel, startGroup: String?, expenseId: String?, pa
     var date by remember { mutableStateOf(existing?.date?.toDate() ?: LocalDate.now()) }
     var repeat by remember { mutableStateOf(existing?.repeat ?: Repeat.NONE) }
     val payers = remember(group.id) { mutableStateListOf<String>().apply { addAll(existing?.paid?.keys?.toList() ?: listOf(payment?.from ?: me)) } }
-    var multiPay by remember(group.id) { mutableStateOf((existing?.paid?.size ?: 1) > 1) }
     val payerInputs = remember(group.id) { mutableStateMapOf<String, String>().apply { existing?.paid?.forEach { (k, v) -> put(k, Money.plain(v)) } } }
     var mode by remember { mutableStateOf(existing?.let { runCatching { SplitMode.valueOf(it.mode) }.getOrNull() } ?: SplitMode.EQUAL) }
     val split = remember(group.id) { mutableStateListOf<String>().apply { addAll(existing?.shares?.keys?.toList() ?: if (isPayment) listOfNotNull(defaultReceiver) else group.members) } }
@@ -165,7 +164,7 @@ fun ExpenseEditor(nav: NavViewModel, startGroup: String?, expenseId: String?, pa
 
     when (page) {
         Page.PAID_BY -> {
-            PaidByPage(group, people, me, amount, payers, multiPay && !isPayment, { multiPay = it }, payerInputs, payerError, allowMulti = !isPayment, onDone = { page = Page.MAIN })
+            PaidByPage(group, people, me, amount, payers, payerInputs, payerError, allowMulti = !isPayment, onDone = { page = Page.MAIN })
             return
         }
         Page.SPLIT -> {
@@ -348,41 +347,35 @@ fun ExpenseEditor(nav: NavViewModel, startGroup: String?, expenseId: String?, pa
     }
 }
 
-/** "Who paid?": one person, or several with their own amounts. */
+/** "Who paid?": tick everyone who chipped in; with more than one, enter each person's amount. */
 @Composable
 private fun PaidByPage(
     group: Group, people: List<String>, me: String, amount: Long,
-    payers: MutableList<String>, multi: Boolean, setMulti: (Boolean) -> Unit,
-    inputs: MutableMap<String, String>, error: String?, allowMulti: Boolean = true, onDone: () -> Unit
+    payers: MutableList<String>, inputs: MutableMap<String, String>, error: String?, allowMulti: Boolean = true, onDone: () -> Unit
 ) {
+    val multi = allowMulti && payers.size > 1
     Column(Modifier.fillMaxSize().imePadding()) {
         PageBar("Who paid?", onDone, enabled = !multi || error == null)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-            if (allowMulti) {
-                ListCard {
-                    SettingRow("More than one person paid", "Turn this on if several people chipped in for this expense, then enter how much each one paid.", null,
-                        onClick = {
-                            if (multi && payers.size > 1) payers.retainAll(listOf(payers.first()))
-                            setMulti(!multi)
-                        }) {
-                        Toggle(multi) {
-                            if (multi && payers.size > 1) payers.retainAll(listOf(payers.first()))
-                            setMulti(it)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-            SectionLabel(if (multi) "Who chipped in" else "Who paid")
+            Spacer(Modifier.height(4.dp))
+            Text(if (allowMulti) "Tick everyone who chipped in." else "Who paid?", style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
             ListCard {
                 people.forEachIndexed { i, uid ->
                     if (i > 0) HairLine()
                     val on = uid in payers
                     PersonRow(group.name(uid, me), uid, on, onToggle = {
-                        if (multi) { if (on) payers.remove(uid) else payers.add(uid) }
-                        else { payers.clear(); payers.add(uid); onDone() }
+                        when {
+                            !allowMulti -> { payers.clear(); payers.add(uid); onDone() }
+                            on && payers.size > 1 -> payers.remove(uid)
+                            !on -> payers.add(uid)
+                        }
                     }) {
-                        if (multi && on) MiniField(inputs[uid].orEmpty(), { inputs[uid] = it }, "₹", null)
+                        androidx.compose.animation.AnimatedVisibility(multi && on,
+                            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandHorizontally(),
+                            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkHorizontally()) {
+                            MiniField(inputs[uid].orEmpty(), { inputs[uid] = it }, "₹", null)
+                        }
                     }
                 }
             }

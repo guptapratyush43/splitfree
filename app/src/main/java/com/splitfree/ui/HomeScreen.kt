@@ -47,6 +47,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.animation.core.animateFloat
@@ -233,17 +236,13 @@ fun NewGroupDialog(onDismiss: () -> Unit, onCreated: (String) -> Unit) {
 
 /**
  * Group card: the place photo fills the card, dimmed so white text reads well
- * in light and dark mode. Name, your status and who's in the group.
+ * in light and dark mode. Name, your status on the left, members on the right.
  */
 @Composable
 private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt>, onClick: () -> Unit) {
     val me = Auth.uid
-    val others = g.members.filter { it != me }.map { g.info[it]?.name ?: "Someone" }
-    val people = when {
-        others.isEmpty() -> "Just you so far"
-        others.size <= 3 -> others.joinToString(", ")
-        else -> others.take(3).joinToString(", ") + " +${others.size - 3} more"
-    }
+    val others = g.members.filter { it != me }.map { g.info[it]?.name?.substringBefore(' ')?.ifBlank { null } ?: "Someone" }
+    val W = androidx.compose.ui.graphics.Color.White
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp)
     val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val ctx = LocalContext.current
@@ -264,10 +263,11 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
                 1f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.62f)
             )
         ))
-        Column(Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 18.dp)) {
-            Text(g.name, style = MaterialTheme.typography.headlineSmall, color = androidx.compose.ui.graphics.Color.White,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(6.dp))
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+            // The name lines up with the left edge of the capsules below it.
+            Text(g.name, style = MaterialTheme.typography.headlineSmall, color = W,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp))
+            Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val tag = when {
                     net > 0 -> "You are owed ${Money.format(net)}"
@@ -278,50 +278,116 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
                 val tagColor = when {
                     net > 0 -> androidx.compose.ui.graphics.Color(0xFF9BE8A8)
                     net < 0 -> androidx.compose.ui.graphics.Color(0xFFFFB199)
-                    else -> androidx.compose.ui.graphics.Color.White
+                    else -> W
                 }
-                Text(tag, style = MaterialTheme.typography.titleSmall, color = tagColor,
-                    modifier = Modifier.background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.RoundedCornerShape(50))
-                        .padding(horizontal = 12.dp, vertical = 5.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(people, style = MaterialTheme.typography.bodyMedium, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.88f),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                GlassPill {
+                    Text(tag, style = MaterialTheme.typography.titleSmall, color = tagColor, maxLines = 1)
+                }
+                Spacer(Modifier.weight(1f).widthIn(min = 8.dp))
+                GlassPill {
+                    Icon(Icons.Rounded.Groups, null, tint = W, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    NameTicker(others.ifEmpty { listOf("Just you") })
+                }
             }
         }
     }
 }
 
+/** A see-through capsule over a photo: the picture shows through, a thin light rim keeps its edge. */
+@Composable
+private fun GlassPill(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    val pill = androidx.compose.foundation.shape.RoundedCornerShape(50)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.height(32.dp)
+            .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.16f), pill)
+            .border(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.32f), pill)
+            .padding(horizontal = 12.dp),
+        content = content
+    )
+}
+
 /**
- * The app title over slowly drifting clouds of Holi colour powder. Positions are
- * read only while drawing, so the loop never recomposes and stays smooth.
+ * Member names one at a time: each shows for about 0.6 s, then slides up and
+ * the next one rises into its place. The box is as wide as the longest name,
+ * so nothing around it shifts.
+ */
+@Composable
+private fun NameTicker(names: List<String>) {
+    val style = MaterialTheme.typography.titleSmall
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val width = remember(names) {
+        with(density) { names.maxOf { measurer.measure(it, style).size.width }.toDp() }.coerceAtMost(120.dp)
+    }
+    var i by remember(names) { mutableIntStateOf(0) }
+    if (names.size > 1) androidx.compose.runtime.LaunchedEffect(names) {
+        // 250 ms slide + 600 ms on screen.
+        while (true) { kotlinx.coroutines.delay(850); i = (i + 1) % names.size }
+    }
+    androidx.compose.animation.AnimatedContent(
+        targetState = i,
+        transitionSpec = {
+            val spec = androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(250, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            (androidx.compose.animation.slideInVertically(spec) { it } + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(250)))
+                .togetherWith(androidx.compose.animation.slideOutVertically(spec) { -it } + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)))
+                .using(androidx.compose.animation.SizeTransform(clip = true) { _, _ -> androidx.compose.animation.core.snap() })
+        },
+        modifier = Modifier.width(width).clipToBounds(),
+        label = "names"
+    ) { k ->
+        Text(names[k % names.size], style = style, color = androidx.compose.ui.graphics.Color.White,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * The app title over soft coloured mist. Each wisp drifts on a mix of slow waves
+ * whose periods never line up, so the motion never visibly repeats. Time is read
+ * only while drawing, so nothing recomposes and it stays smooth.
  */
 @Composable
 private fun HoliHeader(title: String) {
     val dark = androidx.compose.foundation.isSystemInDarkTheme()
-    val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "holi")
-    val t by loop.animateFloat(
-        0f, (2 * Math.PI).toFloat(),
-        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(16000, easing = androidx.compose.animation.core.LinearEasing)),
-        label = "t"
-    )
-    val colors = listOf(0xFFFF4FA3, 0xFFFFC93C, 0xFF3DDC84, 0xFF3FA9F5, 0xFFFF7A2F, 0xFF8E5CFF)
+    val time = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val ctx = LocalContext.current
+    val reduceMotion = remember {
+        runCatching { android.provider.Settings.Global.getFloat(ctx.contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }.getOrDefault(false)
+    }
+    // Start somewhere random, so the mist is not in the same place every launch.
+    val seed = remember { (Math.random() * 1000).toFloat() }
+    if (!reduceMotion) androidx.compose.runtime.LaunchedEffect(Unit) {
+        val start = androidx.compose.runtime.withFrameNanos { it }
+        while (true) androidx.compose.runtime.withFrameNanos { time.floatValue = (it - start) / 1_000_000_000f }
+    }
+    val colors = listOf(0xFFFF6FB5, 0xFFFFC857, 0xFF5EDC9A, 0xFF62B6F7, 0xFFFF9A5C, 0xFFA07CFF, 0xFF7FE0E0)
         .map { androidx.compose.ui.graphics.Color(it) }
-    val strength = if (dark) 0.30f else 0.38f
+    val strength = if (dark) 0.22f else 0.30f
+    // Irrational ratios between the waves keep the paths from ever lining up again.
+    val phi = 1.618034f; val r2 = 1.4142135f
     Box(
-        Modifier.fillMaxWidth().height(92.dp).drawBehind {
+        Modifier.fillMaxWidth().height(96.dp).drawBehind {
             val w = size.width; val h = size.height
+            val t = time.floatValue + seed
             colors.forEachIndexed { i, c ->
-                // Each cloud loops on its own slow path, at its own speed.
-                val k = 1f + i * 0.37f
-                val x = w * (0.12f + 0.16f * i + 0.10f * kotlin.math.sin(t * k + i))
-                val y = h * (0.5f + 0.35f * kotlin.math.cos(t * (2f - k * 0.3f) + i * 1.7f))
-                val r = h * (0.95f + 0.25f * kotlin.math.sin(t * 0.8f + i * 2f))
-                drawCircle(
-                    androidx.compose.ui.graphics.Brush.radialGradient(
-                        listOf(c.copy(alpha = strength), c.copy(alpha = 0f)), center = androidx.compose.ui.geometry.Offset(x, y), radius = r
-                    ),
-                    radius = r, center = androidx.compose.ui.geometry.Offset(x, y)
-                )
+                val a = 1.1f * (1f + i * 0.13f)
+                val x = w * (0.08f + 0.14f * i + 0.13f * kotlin.math.sin(t * a * phi * 0.1f + i * 2.1f) + 0.06f * kotlin.math.sin(t * a * r2 * 0.07f + i))
+                val y = h * (0.5f + 0.22f * kotlin.math.sin(t * a * 0.13f + i * 1.3f) + 0.12f * kotlin.math.cos(t * a * phi * 0.05f + i * 0.7f))
+                val rad = h * (0.75f + 0.18f * kotlin.math.sin(t * a * r2 * 0.1f + i * 3f))
+                // Wisps thin out and thicken again, like fog breathing.
+                val alpha = strength * (0.65f + 0.35f * kotlin.math.sin(t * a * 0.23f + i * 1.9f))
+                val stretch = 2.2f + 0.6f * kotlin.math.sin(t * a * 0.09f + i)
+                val center = androidx.compose.ui.geometry.Offset(x, y)
+                scale(stretch, 1f, pivot = center) {
+                    drawCircle(
+                        androidx.compose.ui.graphics.Brush.radialGradient(
+                            0f to c.copy(alpha = alpha), 0.55f to c.copy(alpha = alpha * 0.35f), 1f to c.copy(alpha = 0f),
+                            center = center, radius = rad
+                        ),
+                        radius = rad, center = center
+                    )
+                }
             }
         }
     ) {

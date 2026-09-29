@@ -50,6 +50,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
@@ -133,14 +141,14 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                     ))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
-                    CircleIcon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") { nav.pop() }
+                    GlassCircle(Icons.AutoMirrored.Rounded.ArrowBack, "Back", hasPhoto) { nav.pop() }
                     Spacer(Modifier.weight(1f))
-                    CircleIcon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search") {
+                    GlassCircle(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, "Search", hasPhoto) {
                         searching = !searching; query = ""
                         if (searching) scope.launch { pager.scrollToPage(0) }
                     }
                     Spacer(Modifier.width(8.dp))
-                    CircleIcon(Icons.Rounded.Settings, "Group settings") { nav.push(Screen.GroupSettings(gid)) }
+                    GlassCircle(Icons.Rounded.Settings, "Group settings", hasPhoto) { nav.push(Screen.GroupSettings(gid)) }
                 }
                 Text(
                     group.name, style = MaterialTheme.typography.displaySmall,
@@ -239,43 +247,133 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
     }
 }
 
-/** A centred status on top, then one card per member; tap a member to see who they owe or are owed by. */
+/** Round see-through button over the banner photo: the picture shows through, a light rim keeps its edge. */
+@Composable
+private fun GlassCircle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onPhoto: Boolean, onClick: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val fill = if (onPhoto) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
+    val rim = if (onPhoto) Color.White.copy(alpha = 0.38f) else MaterialTheme.colorScheme.outline
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(46.dp).pressScale(src).clip(androidx.compose.foundation.shape.CircleShape)
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(fill.copy(alpha = fill.alpha * 1.5f), fill)))
+            .border(1.dp, rim, androidx.compose.foundation.shape.CircleShape)
+            .clickable(interactionSource = src, indication = null) { Haptics.tick(ctx); onClick() }
+    ) { Icon(icon, label, tint = if (onPhoto) Color.White else MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp)) }
+}
+
+/** A small capsule that gently breathes: "Everyone is settled up". */
+@Composable
+private fun BreathingCapsule(text: String) {
+    val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "breathe")
+    val k by loop.animateFloat(0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            androidx.compose.animation.core.RepeatMode.Reverse), label = "k")
+    val green = moneyColor(1)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(vertical = 10.dp)
+            .graphicsLayer { val sc = 1f + 0.04f * k; scaleX = sc; scaleY = sc; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
+            .drawBehind {
+                // A soft glow that swells and fades with each breath.
+                drawRoundRect(green.copy(alpha = 0.10f + 0.10f * k), cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
+            }
+            .border(1.dp, green.copy(alpha = 0.35f + 0.25f * k), androidx.compose.foundation.shape.RoundedCornerShape(50))
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Icon(Icons.Rounded.CheckCircle, null, tint = green, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MaterialTheme.typography.titleSmall, color = green)
+    }
+}
+
+private enum class BalanceSort(val label: String) { GETS_BACK("Gets back"), OWES("Owes"), NAME("Name") }
+
+/** Your card first, a thin line, then everyone else, sortable. Tap anyone to see their pending expenses. */
 @Composable
 private fun BalancesPage(nav: NavViewModel, group: Group, nets: Map<String, Long>, debts: List<Debt>, me: String, onRemind: (Debt) -> Unit) {
-    val people = (group.members + nets.keys).distinct()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 24.dp)) {
-        item {
-            if (debts.isEmpty()) {
-                EmptyState(Icons.Rounded.AccountBalanceWallet, "Everyone is settled up", "No one owes anything in this group.") {}
-                Spacer(Modifier.height(8.dp))
-                SectionLabel("Members")
-            } else {
-                Spacer(Modifier.height(10.dp))
-                SectionLabel("Members", Modifier.padding(bottom = 0.dp))
-                Text("Tap a member to see who they owe.", style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
-            }
-        }
-        items(people, key = { it }) { uid ->
-            val n = nets[uid] ?: 0
-            WarmCard(padding = 14.dp, onClick = { nav.push(Screen.Member(group.id, uid)) }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(group.info[uid]?.name ?: "?", uid, 44.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(group.name(uid, me) + if (uid !in group.members) " (left)" else "", style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface)
-                        Text(
-                            when { n > 0 -> "Gets back ${Money.format(n)}"; n < 0 -> "Owes ${Money.format(-n)}"; else -> "Settled up" },
-                            style = MaterialTheme.typography.bodyMedium, color = moneyColor(n)
-                        )
-                    }
-                    Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(26.dp))
-                }
-            }
-            Spacer(Modifier.height(10.dp))
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var sort by rememberSaveable { mutableStateOf(BalanceSort.GETS_BACK) }
+    val others = (group.members + nets.keys).distinct().filter { it != me }.let { list ->
+        when (sort) {
+            BalanceSort.GETS_BACK -> list.sortedWith(compareByDescending<String> { nets[it] ?: 0 }.thenBy { group.name(it, me).lowercase() })
+            BalanceSort.OWES -> list.sortedWith(compareBy<String> { nets[it] ?: 0 }.thenBy { group.name(it, me).lowercase() })
+            BalanceSort.NAME -> list.sortedBy { group.name(it, me).lowercase() }
         }
     }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 24.dp)) {
+        item {
+            if (debts.isEmpty()) BreathingCapsule("Everyone is settled up") else Spacer(Modifier.height(10.dp))
+            SectionLabel("Members", Modifier.padding(bottom = 0.dp))
+            Text(if (debts.isEmpty()) "Tap a member to see their expenses." else "Tap a member to see what is pending.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
+        }
+        item(key = me) { MemberCard(nav, group, me, nets[me] ?: 0, me) }
+        if (others.isNotEmpty()) item(key = "others") {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 12.dp)) {
+                Box(Modifier.weight(1f).height(1.dp).background(MaterialTheme.colorScheme.outline))
+                Spacer(Modifier.width(10.dp))
+                // Small sort capsule: tap to cycle Gets back → Owes → Name.
+                val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.pressScale(src).clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                        .clickable(interactionSource = src, indication = null) {
+                            Haptics.tick(ctx); sort = BalanceSort.entries[(sort.ordinal + 1) % BalanceSort.entries.size]
+                        }
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    Icon(Icons.Rounded.SwapVert, "Sort", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    androidx.compose.animation.AnimatedContent(sort, label = "sort",
+                        transitionSpec = { androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) }
+                    ) { st -> Text(st.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+                }
+            }
+        }
+        items(others, key = { it }) { uid ->
+            Box(Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)) { MemberCard(nav, group, uid, nets[uid] ?: 0, me) }
+        }
+    }
+}
+
+@Composable
+private fun MemberCard(nav: NavViewModel, group: Group, uid: String, n: Long, me: String) {
+    WarmCard(padding = 14.dp, onClick = { nav.push(Screen.Member(group.id, uid)) }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(group.info[uid]?.name ?: "?", uid, 44.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(group.name(uid, me) + if (uid !in group.members) " (left)" else "", style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    when { n > 0 -> "Gets back ${Money.format(n)}"; n < 0 -> "Owes ${Money.format(-n)}"; else -> "Settled up" },
+                    style = MaterialTheme.typography.bodyMedium, color = moneyColor(n)
+                )
+            }
+            Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(26.dp))
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+}
+
+/**
+ * The expenses behind [uid]'s current balance: everything since the last time
+ * their balance was zero, newest first, with the effect each one had on them.
+ */
+private fun pendingFor(uid: String, expenses: List<Expense>): List<Pair<Expense, Long>> {
+    val ordered = expenses.sortedWith(compareBy<Expense> { it.date }.thenBy { it.createdAt })
+    var bal = 0L
+    var from = 0
+    ordered.forEachIndexed { i, e ->
+        bal += (e.paid[uid] ?: 0) - (e.shares[uid] ?: 0)
+        if (bal == 0L) from = i + 1
+    }
+    return ordered.drop(from).map { it to ((it.paid[uid] ?: 0) - (it.shares[uid] ?: 0)) }
+        .filter { it.second != 0L }.reversed()
 }
 
 /** One member's pending payments with everyone else in the group. */
@@ -292,6 +390,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     val n = nets[uid] ?: 0
     var remind by remember { mutableStateOf<Debt?>(null) }
     var settle by remember { mutableStateOf<Debt?>(null) }
+    val pending = if (n == 0L) emptyList() else pendingFor(uid, all[gid].orEmpty().filter { !it.deleted })
     Column(Modifier.fillMaxSize()) {
         TopBar(group.name(uid, me).let { if (it == "You") "Your balance" else it }, onBack = { nav.pop() })
         LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
@@ -311,8 +410,8 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                     Text("Only the person you owe can mark a payment as settled.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
                 }
-                if (debts.isEmpty()) EmptyState(Icons.Rounded.Handshake, "Nothing pending", "No payments are due between ${group.name(uid, me).let { if (it == "You") "you" else it }} and anyone else.") {}
-                else SectionLabel("Pending payments")
+                if (debts.isEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { BreathingCapsule("All settled up") }
+                else SectionLabel("Who pays whom")
             }
             items(debts, key = { it.from + it.to }) { d ->
                 val other = if (d.from == uid) d.to else d.from
@@ -335,6 +434,17 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                 }
                 Spacer(Modifier.height(10.dp))
             }
+            if (pending.isNotEmpty()) item { Spacer(Modifier.height(8.dp)); SectionLabel("Pending expenses") }
+            pending.groupBy { Fmt.day(it.first.date) }.forEach { (day, list) ->
+                item(key = "d$day") {
+                    Text(day, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 8.dp))
+                }
+                items(list, key = { "p" + it.first.id }) { (e, effect) ->
+                    PendingRow(group, e, effect, uid, me) { nav.push(Screen.Detail(gid, e.id)) }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
         }
     }
     remind?.let { d ->
@@ -347,6 +457,34 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                 Repo.settle(group, d.from, d.to, d.amount, System.currentTimeMillis())
                 Haptics.success(context); toast(context, "Marked as settled")
             }, onDismiss = { settle = null }, danger = false)
+    }
+}
+
+/** One expense behind a member's balance: category, title, who added it and what it means for them. */
+@Composable
+private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: String, onClick: () -> Unit) {
+    WarmCard(onClick = onClick, padding = 12.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            CategoryBubble(if (e.settlement && e.category == com.splitfree.data.Category.GENERAL) "🤝" else e.category.emoji, 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                val title = if (e.settlement) {
+                    val from = e.paid.keys.firstOrNull()?.let { group.name(it, me) } ?: "Someone"
+                    val to = e.shares.keys.firstOrNull()?.let { if (it == me) "you" else group.name(it, me) } ?: "someone"
+                    "$from paid $to"
+                } else e.title
+                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${e.category.label} · Added by ${group.name(e.createdBy, me)}", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                val you = uid == me
+                Text(if (effect > 0) (if (you) "You lent" else "Lent") else (if (you) "You borrowed" else "Borrowed"),
+                    style = MaterialTheme.typography.bodySmall, color = moneyColor(effect))
+                Text(Money.format(abs(effect)), style = MaterialTheme.typography.titleSmall, color = moneyColor(effect))
+            }
+        }
     }
 }
 
