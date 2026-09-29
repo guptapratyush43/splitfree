@@ -76,11 +76,14 @@ fun UpdateDialog(release: UpdateManager.Release) {
                     Column(Modifier.fillMaxWidth().padding(14.dp)) {
                         Text("What's new", style = MaterialTheme.typography.titleSmall,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                        Spacer(Modifier.height(6.dp))
-                        // Lines that aren't bullets are section headings, like "New features" or "Fixes".
+                        // One blank line under "What's new", then each section: heading, its bullets with
+                        // no gaps, and a single blank line before the next heading.
+                        Spacer(Modifier.height(16.dp))
+                        // Lines that aren't bullets are section headings: "New features", "Improved", "Fixes".
                         val body = androidx.compose.ui.text.buildAnnotatedString {
                             release.notes.lines().filter { it.isNotBlank() }.forEachIndexed { i, line ->
-                                val heading = line.isNotBlank() && !line.startsWith("•")
+                                val t = line.trimStart()
+                                val heading = !t.startsWith("•") && !t.startsWith("-") && !t.startsWith("*")
                                 if (i > 0) append("\n")
                                 if (heading && i > 0) append("\n")
                                 if (heading) this.withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)) { append(line.trim()) }
