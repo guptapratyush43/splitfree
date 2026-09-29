@@ -47,6 +47,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.graphics.graphicsLayer
@@ -106,14 +108,15 @@ fun HomeScreen(nav: NavViewModel) {
                 }
             }
         }
+        val invites by Repo.invites.collectAsStateWithLifecycle()
         BottomTabs(
             listOf("Groups" to Icons.Rounded.Groups, "Activity" to Icons.Rounded.Timeline, "Account" to Icons.Rounded.AccountCircle),
-            tab.coerceAtMost(2)
+            tab.coerceAtMost(2), dots = if (invites.isNotEmpty()) setOf(1) else emptySet()
         ) { nav.homeTab.value = it }
     }
 }
 
-private val filters = listOf("All groups", "Outstanding balances", "Groups you owe", "Groups that owe you")
+private val filters = listOf("All groups", "Outstanding", "You owe", "Owe you")
 
 @Composable
 private fun GroupsTab(nav: NavViewModel) {
@@ -130,8 +133,9 @@ private fun GroupsTab(nav: NavViewModel) {
     @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
     val imeVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
     androidx.compose.runtime.LaunchedEffect(imeVisible) { if (!imeVisible && searching) focusManager.clearFocus() }
-    var filtering by remember { mutableStateOf(false) }
     var filter by rememberSaveable { mutableIntStateOf(0) }
+    var menuFor by remember { mutableStateOf<Group?>(null) }
+    var linkFor by remember { mutableStateOf<Group?>(null) }
     var query by remember { mutableStateOf("") }
     val me = Auth.uid
 
@@ -175,7 +179,7 @@ private fun GroupsTab(nav: NavViewModel) {
                 }.take(50)
                 if (groupHits.isNotEmpty()) item { SectionLabel("Groups", Modifier.padding(start = 20.dp, top = 18.dp)) }
                 items(groupHits, key = { "gh" + it.id }) { g ->
-                    GroupRow(g, nets[g.id] ?: 0, hasExpenses[g.id] == true, debtsByGroup[g.id].orEmpty()) { nav.push(Screen.Group(g.id)) }
+                    GroupRow(g, nets[g.id] ?: 0, hasExpenses[g.id] == true, debtsByGroup[g.id].orEmpty(), { menuFor = g }) { nav.push(Screen.Group(g.id)) }
                 }
                 if (hits.isNotEmpty()) item { SectionLabel("Expenses", Modifier.padding(start = 20.dp, top = 18.dp)) }
                 items(hits, key = { "eh" + it.second.id }) { (g, e) ->
@@ -187,7 +191,7 @@ private fun GroupsTab(nav: NavViewModel) {
 
             // ---- overall + filter ----
             item {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 14.dp, bottom = 6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp)) {
                     Text(
                         buildAnnotatedString {
                             when {
@@ -198,12 +202,9 @@ private fun GroupsTab(nav: NavViewModel) {
                         },
                         style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f)
                     )
-                    IconButton(onClick = { filtering = true }) {
-                        Icon(Icons.Rounded.Tune, "Filter", tint = if (filter != 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(28.dp))
-                    }
+                    Spacer(Modifier.width(8.dp))
+                    SortCapsule(filters[filter]) { filter = (filter + 1) % filters.size }
                 }
-                if (filter != 0) Text(filters[filter], style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 20.dp, bottom = 6.dp))
             }
             if (invites.isNotEmpty()) {
                 items(invites, key = { "inv" + it.id }) { Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) { InviteCard(it) } }
@@ -219,7 +220,7 @@ private fun GroupsTab(nav: NavViewModel) {
             }
             if (groups.isNotEmpty() && visible.isEmpty()) item { Spacer(Modifier.height(20.dp)); Footnote("No groups match this filter.") }
             items(visible, key = { it.id }) { g ->
-                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) { GroupRow(g, nets[g.id] ?: 0, hasExpenses[g.id] == true, debtsByGroup[g.id].orEmpty()) { nav.push(Screen.Group(g.id)) } }
+                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) { GroupRow(g, nets[g.id] ?: 0, hasExpenses[g.id] == true, debtsByGroup[g.id].orEmpty(), { menuFor = g }) { nav.push(Screen.Group(g.id)) } }
             }
         }
 
@@ -227,14 +228,14 @@ private fun GroupsTab(nav: NavViewModel) {
     }
 
     if (creating) NewGroupDialog(onDismiss = { creating = false }) { id -> creating = false; nav.push(Screen.Group(id)) }
-    if (filtering) WarmDialog("Sort by", onDismiss = { filtering = false }) {
-        ListCard {
-            filters.forEachIndexed { i, label ->
-                if (i > 0) HairLine()
-                SettingRow(label, null, null, onClick = { filter = i; filtering = false }) { RadioDot(filter == i) }
+    menuFor?.let { g ->
+        WarmDialog(g.name, onDismiss = { menuFor = null }) {
+            ListCard {
+                SettingRow("Add members", "Share a link or show a QR code", Icons.Rounded.PersonAdd, onClick = { menuFor = null; linkFor = g })
             }
         }
     }
+    linkFor?.let { g -> InviteLinkSheet(g) { linkFor = null } }
 }
 
 @Composable
@@ -255,7 +256,8 @@ fun NewGroupDialog(onDismiss: () -> Unit, onCreated: (String) -> Unit) {
  * in light and dark mode. Name, your status on the left, members on the right.
  */
 @Composable
-private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt>, onClick: () -> Unit) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt>, onLongClick: () -> Unit = {}, onClick: () -> Unit) {
     val me = Auth.uid
     val others = g.members.filter { it != me }.map { g.info[it]?.name?.substringBefore(' ')?.ifBlank { null } ?: "Someone" }
     val W = androidx.compose.ui.graphics.Color.White
@@ -266,7 +268,8 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
         Modifier.padding(horizontal = 20.dp, vertical = 7.dp).fillMaxWidth().height(156.dp)
             .pressScale(src).clip(shape)
             .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(groupTint(g.id), groupTint(g.id).copy(alpha = 0.7f))))
-            .clickable(interactionSource = src, indication = null) { Haptics.tick(ctx); onClick() }
+            .combinedClickable(interactionSource = src, indication = null,
+                onLongClick = { Haptics.press(ctx); onLongClick() }) { Haptics.tick(ctx); onClick() }
     ) {
         if (g.cover.isNotBlank()) coil.compose.AsyncImage(
             model = g.cover, contentDescription = null,
@@ -395,7 +398,7 @@ private fun Mist(list: androidx.compose.foundation.lazy.LazyListState) {
                 val w = size.width; val h = size.height
                 val t = time.floatValue + seed
                 colors.forEachIndexed { i, c ->
-                    val a = 2.0f * (1f + i * 0.13f)
+                    val a = 4.2f * (1f + i * 0.13f)
                     val x = w * (0.08f + 0.14f * i + 0.13f * kotlin.math.sin(t * a * phi * 0.1f + i * 2.1f) + 0.06f * kotlin.math.sin(t * a * r2 * 0.07f + i))
                     val y = h * (0.5f + 0.24f * kotlin.math.sin(t * a * 0.13f + i * 1.3f) + 0.12f * kotlin.math.cos(t * a * phi * 0.05f + i * 0.7f))
                     val rad = h * (0.62f + 0.14f * kotlin.math.sin(t * a * r2 * 0.1f + i * 3f))
@@ -417,39 +420,32 @@ private fun Mist(list: androidx.compose.foundation.lazy.LazyListState) {
     )
 }
 
-/** Bell for group invitations: a dot while any are waiting; tap to answer them. */
+/** "Invitations" capsule: soft rings ripple around it while one is waiting for your answer. */
 @Composable
-private fun InviteBell(nav: NavViewModel) {
+private fun InvitationsCapsule(nav: NavViewModel) {
     val invites by Repo.invites.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier.size(46.dp).pressScale(src).clip(androidx.compose.foundation.shape.CircleShape)
+    val pending = invites.isNotEmpty()
+    val tint = if (pending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    val pill = androidx.compose.foundation.shape.RoundedCornerShape(50)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(10.dp)
+            .then(if (pending) Modifier.rippleRings(MaterialTheme.colorScheme.primary, spread = 10.dp) else Modifier)
+            .pressScale(src).clip(pill)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, if (pending) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline, pill)
             .clickable(interactionSource = src, indication = null) {
                 Haptics.tick(ctx)
-                if (invites.isNotEmpty()) nav.showInvites.value = true
+                if (pending) nav.showInvites.value = true
                 else android.widget.Toast.makeText(ctx, "No pending invitations", android.widget.Toast.LENGTH_SHORT).show()
             }
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        Icon(Icons.Rounded.Notifications, "Invitations", tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(28.dp))
-        androidx.compose.animation.AnimatedVisibility(invites.isNotEmpty(), Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 10.dp),
-            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
-            val red = MaterialTheme.colorScheme.error
-            val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "bell")
-            val k by loop.animateFloat(0f, 1f,
-                androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800, easing = androidx.compose.animation.core.LinearEasing)),
-                label = "k")
-            Box(Modifier.size(11.dp).drawBehind {
-                // Two rings half a beat apart, each growing out of the dot and fading.
-                for (phase in listOf(0f, 0.5f)) {
-                    val p = (k + phase) % 1f
-                    drawCircle(red.copy(alpha = 0.5f * (1f - p)), radius = size.minDimension / 2 + 9.dp.toPx() * androidx.compose.animation.core.FastOutSlowInEasing.transform(p),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(1.6.dp.toPx()))
-                }
-            }.background(MaterialTheme.colorScheme.background, androidx.compose.foundation.shape.CircleShape).padding(2.dp)
-                .background(red, androidx.compose.foundation.shape.CircleShape))
-        }
+        Icon(Icons.Rounded.MailOutline, null, tint = tint, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Invitations", style = MaterialTheme.typography.titleSmall, color = tint)
     }
 }
 
@@ -531,7 +527,7 @@ private fun ActivityTab(nav: NavViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 6.dp)) {
                 Text("Activity", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f))
-                InviteBell(nav)
+                InvitationsCapsule(nav)
             }
             HairLine()
             Spacer(Modifier.height(10.dp))

@@ -277,12 +277,14 @@ object Repo {
         notify(g, e.involved, "Expense restored in ${g.name}", "${Auth.name} restored $label", e.id)
     }
 
-    fun settle(g: Group, from: String, to: String, amount: Long, date: Long) {
+    /** Records [from] paying [to]. [settles]: the expenses this payment clears, when picked one by one. */
+    fun settle(g: Group, from: String, to: String, amount: Long, date: Long, settles: List<String> = emptyList()) {
         val now = System.currentTimeMillis()
         val e = Expense(
             id = newExpenseId(g.id), groupId = g.id, title = "Payment", note = "", category = Category.GENERAL,
             amount = amount, date = date, paid = mapOf(from to amount), shares = mapOf(to to amount),
-            mode = "EXACT", inputs = emptyMap(), payerInputs = emptyMap(), createdBy = Auth.uid!!, createdAt = now,
+            mode = "EXACT", inputs = if (settles.isEmpty()) emptyMap() else mapOf("settles" to settles.joinToString(",")),
+            payerInputs = emptyMap(), createdBy = Auth.uid!!, createdAt = now,
             updatedAt = now, deleted = false, deletedAt = 0, settlement = true, repeat = Repeat.NONE, nextDue = 0, templateId = null
         )
         saveExpense(g, e, isNew = true)

@@ -124,7 +124,7 @@ object Cover {
         return try {
             c.connectTimeout = 10_000
             c.readTimeout = 15_000
-            c.setRequestProperty("User-Agent", "SplitFree/2.6 (Android expense-splitting app)")
+            c.setRequestProperty("User-Agent", "SplitFree/2.7 (Android expense-splitting app)")
             when (c.responseCode) {
                 200 -> JSONObject(c.inputStream.use { String(it.readBytes()) })
                 in 500..599 -> throw java.io.IOException("Wikipedia is busy")

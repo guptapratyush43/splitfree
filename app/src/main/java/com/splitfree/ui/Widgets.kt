@@ -38,6 +38,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.togetherWith
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -363,8 +368,63 @@ fun FloatingAdd(text: String, icon: ImageVector, onClick: () -> Unit, modifier: 
 }
 
 /** Bottom tab bar: icon over label, the active tab in clay. */
+/**
+ * Soft rings that ripple out of this element's rounded outline and fade, two
+ * at a time half a beat apart. The element itself never changes size.
+ */
 @Composable
-fun BottomTabs(tabs: List<Pair<String, ImageVector>>, selected: Int, onSelect: (Int) -> Unit) {
+fun Modifier.rippleRings(color: Color, spread: Dp = 14.dp, period: Int = 2200): Modifier {
+    val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "rings")
+    val k by loop.animateFloat(0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(tween(period, easing = androidx.compose.animation.core.LinearEasing)), label = "k")
+    return this.drawBehind {
+        for (phase in listOf(0f, 0.5f)) {
+            val p = (k + phase) % 1f
+            val grow = spread.toPx() * androidx.compose.animation.core.FastOutSlowInEasing.transform(p)
+            drawRoundRect(
+                color.copy(alpha = 0.5f * (1f - p)),
+                topLeft = androidx.compose.ui.geometry.Offset(-grow, -grow),
+                size = androidx.compose.ui.geometry.Size(size.width + 2 * grow, size.height + 2 * grow),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.minDimension / 2 + grow),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
+            )
+        }
+    }
+}
+
+/** Small sort capsule: tap to move to the next order; the label cross-fades. */
+@Composable
+fun SortCapsule(label: String, onClick: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val src = remember { MutableInteractionSource() }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.pressScale(src).clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+            .clickable(interactionSource = src, indication = null) { Haptics.tick(ctx); onClick() }
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Icon(androidx.compose.material.icons.Icons.Rounded.SwapVert, "Sort", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(4.dp))
+        androidx.compose.animation.AnimatedContent(label, label = "sort",
+            transitionSpec = {
+                (androidx.compose.animation.fadeIn(tween(180)) togetherWith androidx.compose.animation.fadeOut(tween(120))).using(
+                    androidx.compose.animation.SizeTransform(clip = false) { _, _ -> tween(180) })
+            }
+        ) { t -> Text(t, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1) }
+    }
+}
+
+/** Small red dot with rings rippling out of it: something here needs you. */
+@Composable
+fun AlertDot(modifier: Modifier = Modifier) {
+    val red = MaterialTheme.colorScheme.error
+    Box(modifier.size(11.dp).rippleRings(red, spread = 8.dp, period = 1800)
+        .background(MaterialTheme.colorScheme.background, CircleShape).padding(2.dp).background(red, CircleShape))
+}
+
+@Composable
+fun BottomTabs(tabs: List<Pair<String, ImageVector>>, selected: Int, dots: Set<Int> = emptySet(), onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val ctx = androidx.compose.ui.platform.LocalContext.current
     Column(Modifier.fillMaxWidth().background(scheme.surface)) {
@@ -376,7 +436,11 @@ fun BottomTabs(tabs: List<Pair<String, ImageVector>>, selected: Int, onSelect: (
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.weight(1f).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (i != selected) Haptics.tick(ctx); onSelect(i) }.padding(vertical = 6.dp)
                 ) {
-                    Icon(icon, label, tint = if (active) scheme.primary else scheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+                    Box {
+                        Icon(icon, label, tint = if (active) scheme.primary else scheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+                        androidx.compose.animation.AnimatedVisibility(i in dots, Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp),
+                            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) { AlertDot() }
+                    }
                     Spacer(Modifier.height(3.dp))
                     Text(label, style = MaterialTheme.typography.labelSmall, color = if (active) scheme.primary else scheme.onSurfaceVariant)
                 }

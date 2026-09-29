@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -64,7 +65,17 @@ fun UpdateDialog(release: UpdateManager.Release) {
                         Text("What's new", style = MaterialTheme.typography.titleSmall,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.height(6.dp))
-                        Text(release.notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        // Lines that aren't bullets are section headings, like "New features" or "Fixes".
+                        val body = androidx.compose.ui.text.buildAnnotatedString {
+                            release.notes.lines().filter { it.isNotBlank() }.forEachIndexed { i, line ->
+                                val heading = line.isNotBlank() && !line.startsWith("•")
+                                if (i > 0) append("\n")
+                                if (heading && i > 0) append("\n")
+                                if (heading) this.withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)) { append(line.trim()) }
+                                else append(line)
+                            }
+                        }
+                        Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }

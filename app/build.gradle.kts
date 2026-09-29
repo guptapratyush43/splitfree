@@ -15,8 +15,8 @@ android {
         applicationId = "com.splitfree"
         minSdk = 26
         targetSdk = 34
-        versionCode = 17
-        versionName = "2.6"
+        versionCode = 18
+        versionName = "2.7"
         // Cloudflare Worker that sends pushes and does membership changes.
         buildConfigField("String", "API_URL", "\"https://split-free.split-free-worker.workers.dev\"")
     }

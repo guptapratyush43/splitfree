@@ -222,7 +222,7 @@ fun BackupScreen(nav: NavViewModel) {
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Footnote("Every new expense, payment or change is backed up right away to a hidden app folder in your Google Drive. Nothing appears in My Drive.")
+            Footnote("Every new expense, payment or change is backed up right away to your Google Drive.")
             Spacer(Modifier.height(22.dp))
             ListCard {
                 SettingRow("Restore", "Brings back missing expenses and deleted groups you created. Never overwrites newer data.", Icons.Rounded.CloudDownload,

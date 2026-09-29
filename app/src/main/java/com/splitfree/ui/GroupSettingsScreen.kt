@@ -75,7 +75,6 @@ fun GroupSettingsScreen(nav: NavViewModel, gid: String) {
 
     var name by remember(group.name) { mutableStateOf(group.name) }
     var email by remember { mutableStateOf("") }
-    var showQr by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var removing by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -108,11 +107,13 @@ fun GroupSettingsScreen(nav: NavViewModel, gid: String) {
             Spacer(Modifier.height(22.dp))
 
             // ---- members ----
-            SectionLabel("Group members")
+            SectionLabel("Invite members")
             ListCard {
-                SettingRow("Add people to group", "Invite by their Google email", Icons.Rounded.PersonAdd, onClick = { adding = true })
+                SettingRow("Add people to group", "Invite one or more by their Google email", Icons.Rounded.PersonAdd, onClick = { adding = true })
                 HairLine()
                 SettingRow("Invite via link", "Share on WhatsApp or show a QR code", Icons.Rounded.Link, onClick = { linkSheet = true })
+                HairLine()
+                SettingRow("Reset link", "The old link and QR code stop working", Icons.Rounded.Refresh, onClick = { confirm = "reset" })
             }
             Spacer(Modifier.height(22.dp))
 
@@ -202,45 +203,29 @@ fun GroupSettingsScreen(nav: NavViewModel, gid: String) {
         }
     }
     if (adding) WarmDialog("Add people", onDismiss = { adding = false }) {
-        Field(email, { email = it.trim() }, placeholder = "friend@gmail.com", keyboard = KeyboardType.Email)
+        // Several at once: separated by commas, spaces, semicolons or new lines.
+        val typed = email.split(Regex("[,;\\s]+")).map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
+        val members = group.info.filterKeys { it in group.members }.values.map { it.email.lowercase() }.toSet()
+        val bad = typed.filter { !android.util.Patterns.EMAIL_ADDRESS.matcher(it).matches() }
+        val already = typed.filter { it in members || it in group.invited }
+        val send = typed - bad.toSet() - already.toSet()
+        Field(email, { email = it }, placeholder = "asha@gmail.com, ravi@gmail.com", keyboard = KeyboardType.Email, singleLine = false)
         Spacer(Modifier.height(8.dp))
-        Text("They get a notification on their phone once they're signed in to Split Free with this Google account, and can accept or reject.",
+        Text("Add one or more emails, separated by commas or spaces. Each person gets an invitation in Split Free to accept or reject.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (bad.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text("Not an email: ${bad.joinToString(", ")}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (already.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text("Already in or invited: ${already.joinToString(", ")}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
         Spacer(Modifier.height(20.dp))
-        val valid = android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
-        val already = group.info.filterKeys { it in group.members }.values.any { it.email.equals(email, true) }
-        if (already) { Text("They're already in this group.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall); Spacer(Modifier.height(12.dp)) }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             SecondaryButton("Cancel", null, { adding = false }, Modifier.weight(1f))
-            PrimaryButton("Send invite", null, {
-                Repo.invite(group, email)
-                toast(context, "Invite sent. They'll get a notification in Split Free.")
+            PrimaryButton(if (send.size > 1) "Send ${send.size} invites" else "Send invite", null, {
+                send.forEach { Repo.invite(group, it) }
+                toast(context, if (send.size > 1) "${send.size} invites sent" else "Invite sent")
                 email = ""; adding = false
-            },
-                Modifier.weight(1f), enabled = valid && !already)
+            }, Modifier.weight(1f), enabled = send.isNotEmpty() && bad.isEmpty())
         }
     }
-    if (linkSheet) WarmDialog("Invite via link", onDismiss = { linkSheet = false }) {
-        Text("Anyone with this link can join ${group.name}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(14.dp))
-        ListCard {
-            SettingRow("Share link", null, Icons.Rounded.Share, onClick = {
-                linkSheet = false
-                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "Join “${group.name}” on Split Free: $link")
-                context.startActivity(Intent.createChooser(send, "Share invite link"))
-            })
-            HairLine()
-            SettingRow("Show QR code", null, Icons.Rounded.QrCode2, onClick = { linkSheet = false; showQr = true })
-            HairLine()
-            SettingRow("Reset link", "The old link stops working", Icons.Rounded.Refresh, onClick = { linkSheet = false; confirm = "reset" })
-        }
-    }
-    if (showQr) WarmDialog("Scan to join", onDismiss = { showQr = false }) {
-        val bmp = remember(link) { qr(link, 720) }
-        Image(bmp.asImageBitmap(), "Invite QR code", Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color.White, RoundedCornerShape(12.dp)).padding(12.dp))
-        Spacer(Modifier.height(12.dp))
-        Footnote("Opens “${group.name}” in Split Free.")
-    }
+    if (linkSheet) InviteLinkSheet(group) { linkSheet = false }
     when (confirm) {
         "reset" -> ConfirmDialog("Reset invite link?", "Anyone holding the old link or QR code won't be able to join with it.", "Reset",
             onConfirm = { Repo.newInviteLink(group); toast(context, "New link ready") }, onDismiss = { confirm = null }, danger = false)
@@ -258,6 +243,32 @@ fun GroupSettingsScreen(nav: NavViewModel, gid: String) {
             ConfirmDialog("Remove ${group.name(uid, me)}?", "They'll lose access to this group. Past expenses keep their name.", "Remove",
                 onConfirm = { call("Removed") { Repo.remove(group, uid) } }, onDismiss = { removing = null })
         }
+    }
+}
+
+/** "Invite via link": share the join link or show it as a QR code. */
+@Composable
+fun InviteLinkSheet(group: com.splitfree.data.Group, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val link = "${BuildConfig.API_URL}/j/${group.id}/${group.joinCode}"
+    var showQr by remember { mutableStateOf(false) }
+    if (!showQr) WarmDialog("Invite via link", onDismiss = onDismiss) {
+        Text("Anyone with this link can join ${group.name}.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(14.dp))
+        ListCard {
+            SettingRow("Share link", null, Icons.Rounded.Share, onClick = {
+                onDismiss()
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "Join “${group.name}” on Split Free: $link")
+                context.startActivity(Intent.createChooser(send, "Share invite link"))
+            })
+            HairLine()
+            SettingRow("Show QR code", null, Icons.Rounded.QrCode2, onClick = { showQr = true })
+        }
+    } else WarmDialog("Scan to join", onDismiss = onDismiss) {
+        val bmp = remember(link) { qr(link, 720) }
+        Image(bmp.asImageBitmap(), "Invite QR code", Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color.White, RoundedCornerShape(12.dp)).padding(12.dp))
+        Spacer(Modifier.height(12.dp))
+        Footnote("Opens “${group.name}” in Split Free.")
     }
 }
 
