@@ -176,6 +176,9 @@ fun AvatarArt(index: Int, size: Dp, description: String? = null) {
 
 val avatarCount get() = avatarPool.size
 
+/** People who never picked a cartoon keep the one they had from the original 24. */
+private const val DEFAULT_AVATARS = 24
+
 private val photoCache = android.util.LruCache<Int, androidx.compose.ui.graphics.ImageBitmap>(40)
 
 /** Base64 JPEG to an image, cached so lists don't decode the same face twice. */
@@ -188,7 +191,7 @@ fun decodePhoto(b64: String): androidx.compose.ui.graphics.ImageBitmap? {
 }
 
 /** 24 bundled cartoon characters; everyone gets one, the same in every group. */
-private val avatarPool = listOf(com.splitfree.R.drawable.av_01, com.splitfree.R.drawable.av_02, com.splitfree.R.drawable.av_03, com.splitfree.R.drawable.av_04, com.splitfree.R.drawable.av_05, com.splitfree.R.drawable.av_06, com.splitfree.R.drawable.av_07, com.splitfree.R.drawable.av_08, com.splitfree.R.drawable.av_09, com.splitfree.R.drawable.av_10, com.splitfree.R.drawable.av_11, com.splitfree.R.drawable.av_12, com.splitfree.R.drawable.av_13, com.splitfree.R.drawable.av_14, com.splitfree.R.drawable.av_15, com.splitfree.R.drawable.av_16, com.splitfree.R.drawable.av_17, com.splitfree.R.drawable.av_18, com.splitfree.R.drawable.av_19, com.splitfree.R.drawable.av_20, com.splitfree.R.drawable.av_21, com.splitfree.R.drawable.av_22, com.splitfree.R.drawable.av_23, com.splitfree.R.drawable.av_24)
+private val avatarPool = listOf(com.splitfree.R.drawable.av_01, com.splitfree.R.drawable.av_02, com.splitfree.R.drawable.av_03, com.splitfree.R.drawable.av_04, com.splitfree.R.drawable.av_05, com.splitfree.R.drawable.av_06, com.splitfree.R.drawable.av_07, com.splitfree.R.drawable.av_08, com.splitfree.R.drawable.av_09, com.splitfree.R.drawable.av_10, com.splitfree.R.drawable.av_11, com.splitfree.R.drawable.av_12, com.splitfree.R.drawable.av_13, com.splitfree.R.drawable.av_14, com.splitfree.R.drawable.av_15, com.splitfree.R.drawable.av_16, com.splitfree.R.drawable.av_17, com.splitfree.R.drawable.av_18, com.splitfree.R.drawable.av_19, com.splitfree.R.drawable.av_20, com.splitfree.R.drawable.av_21, com.splitfree.R.drawable.av_22, com.splitfree.R.drawable.av_23, com.splitfree.R.drawable.av_24, com.splitfree.R.drawable.av_25, com.splitfree.R.drawable.av_26, com.splitfree.R.drawable.av_27, com.splitfree.R.drawable.av_28, com.splitfree.R.drawable.av_29, com.splitfree.R.drawable.av_30, com.splitfree.R.drawable.av_31, com.splitfree.R.drawable.av_32, com.splitfree.R.drawable.av_33, com.splitfree.R.drawable.av_34, com.splitfree.R.drawable.av_35, com.splitfree.R.drawable.av_36, com.splitfree.R.drawable.av_37, com.splitfree.R.drawable.av_38, com.splitfree.R.drawable.av_39, com.splitfree.R.drawable.av_40, com.splitfree.R.drawable.av_41, com.splitfree.R.drawable.av_42, com.splitfree.R.drawable.av_43, com.splitfree.R.drawable.av_44, com.splitfree.R.drawable.av_45, com.splitfree.R.drawable.av_46, com.splitfree.R.drawable.av_47, com.splitfree.R.drawable.av_48, com.splitfree.R.drawable.av_49, com.splitfree.R.drawable.av_50, com.splitfree.R.drawable.av_51, com.splitfree.R.drawable.av_52, com.splitfree.R.drawable.av_53, com.splitfree.R.drawable.av_54, com.splitfree.R.drawable.av_55, com.splitfree.R.drawable.av_56, com.splitfree.R.drawable.av_57, com.splitfree.R.drawable.av_58, com.splitfree.R.drawable.av_59, com.splitfree.R.drawable.av_60, com.splitfree.R.drawable.av_61, com.splitfree.R.drawable.av_62, com.splitfree.R.drawable.av_63, com.splitfree.R.drawable.av_64, com.splitfree.R.drawable.av_65, com.splitfree.R.drawable.av_66, com.splitfree.R.drawable.av_67, com.splitfree.R.drawable.av_68, com.splitfree.R.drawable.av_69, com.splitfree.R.drawable.av_70, com.splitfree.R.drawable.av_71, com.splitfree.R.drawable.av_72, com.splitfree.R.drawable.av_73, com.splitfree.R.drawable.av_74, com.splitfree.R.drawable.av_75, com.splitfree.R.drawable.av_76)
 
 /**
  * A person's cartoon avatar, picked from their account id so it never changes.
@@ -210,7 +213,7 @@ fun Avatar(name: String, key: String, size: Dp = 40.dp) {
                 return
             }
         }
-        AvatarArt(p?.avatar?.takeIf { it in avatarPool.indices } ?: Math.floorMod(key.hashCode(), avatarPool.size), size, name)
+        AvatarArt(p?.avatar?.takeIf { it in avatarPool.indices } ?: Math.floorMod(key.hashCode(), DEFAULT_AVATARS), size, name)
         return
     }
     val palette = listOf(0xFFC15F3C, 0xFF2F6F73, 0xFF7A5BA6, 0xFF3C7A3F, 0xFFA3662A, 0xFF3F5DA8, 0xFF9C3F63, 0xFF5B6770)

@@ -165,6 +165,26 @@ object Backup {
         groupsBack to expensesBack
     }
 
+    /**
+     * Account deletion: stop every pending or scheduled backup first, so nothing
+     * writes a fresh copy afterwards, then remove every backup file from Drive.
+     */
+    suspend fun wipeForAccountDeletion() {
+        pending?.cancel()
+        if (::app.isInitialized) WorkManager.getInstance(app).cancelUniqueWork("backup-soon")
+        setEnabled(false)
+        runCatching {
+            withDrive("Deleting backup…") { drive ->
+                withContext(Dispatchers.IO) {
+                    var left = 5
+                    while (left-- > 0) { val f = drive.find(FILE) ?: break; drive.delete(f.id) }
+                }
+            }
+        }
+        lastBackup.value = 0
+        prefs().edit().putLong("last", 0).apply()
+    }
+
     suspend fun deleteBackup() = withDrive("Deleting backup…") { drive ->
         withContext(Dispatchers.IO) { drive.find(FILE)?.let { drive.delete(it.id) } }
         lastBackup.value = 0

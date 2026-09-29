@@ -73,11 +73,14 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
     Column(Modifier.fillMaxSize().imePadding()) {
         TopBar(if (e.settlement) "Payment" else "Expense", onBack = { nav.pop() }) {
             if (!e.deleted) {
-                IconButton(onClick = { nav.push(Screen.Editor(gid, eid)) }) {
-                    Icon(Icons.Rounded.Edit, "Edit", tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(28.dp))
-                }
                 // Expenses: only the people who paid. Payments: whoever received it or recorded it.
                 val canDelete = if (e.settlement) me in e.shares.keys || me == e.createdBy else me in e.paid.keys
+                IconButton(onClick = {
+                    if (canDelete) nav.push(Screen.Editor(gid, eid))
+                    else toast(context, "Only the people who paid for this can edit it")
+                }) {
+                    Icon(Icons.Rounded.Edit, "Edit", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (canDelete) 1f else 0.4f), modifier = Modifier.size(28.dp))
+                }
                 IconButton(onClick = {
                     if (canDelete) confirmDelete = true
                     else toast(context, "Only the people who paid for this can delete it")

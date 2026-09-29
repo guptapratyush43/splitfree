@@ -1,4 +1,4 @@
-﻿package com.splitfree.ui
+package com.splitfree.ui
 
 import android.app.Activity
 import android.widget.Toast
@@ -115,20 +115,26 @@ fun AppRoot(nav: NavViewModel) {
         val invites by Repo.invites.collectAsStateWithLifecycle()
         var sawInvite by remember { mutableStateOf(false) }
         if (invites.isNotEmpty()) sawInvite = true
-        // Someone invited before they ever installed the app sees it the moment they sign in.
-        var askedThisSession by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-        LaunchedEffect(invites.size) {
-            if (invites.isNotEmpty() && !askedThisSession) { askedThisSession = true; nav.showInvites.value = true }
+        // Each invite pops up once, the first time it's seen; after that it waits in Activity.
+        LaunchedEffect(invites.map { it.id }) {
+            runCatching { Repo.checkInvites(invites.map { it.id }) }
+            val prefs = context.getSharedPreferences("invites", android.content.Context.MODE_PRIVATE)
+            val seen = prefs.getStringSet("popped", emptySet()).orEmpty()
+            val fresh = invites.map { it.id }.filter { it !in seen }
+            if (fresh.isNotEmpty()) {
+                prefs.edit().putStringSet("popped", seen + fresh).apply()
+                nav.showInvites.value = true
+            }
         }
         LaunchedEffect(showInvites, invites.isEmpty(), sawInvite) {
             // Close once every invite is answered, or after a short wait if none arrive.
             if (showInvites && invites.isEmpty()) { if (!sawInvite) kotlinx.coroutines.delay(5000); nav.showInvites.value = false; sawInvite = false }
         }
         if (showInvites) WarmDialog(if (invites.size > 1) "Group invitations" else "Group invitation", onDismiss = { nav.showInvites.value = false }) {
-            if (invites.isEmpty()) Footnote("Loading your invitationâ€¦")
+            if (invites.isEmpty()) Footnote("Loading your invitation…")
             invites.forEachIndexed { i, inv ->
                 if (i > 0) Spacer(Modifier.height(10.dp))
-                InviteCard(inv) { gid -> nav.push(Screen.Group(gid)) }
+                InviteCard(inv, onIgnore = { nav.showInvites.value = false }) { gid -> nav.push(Screen.Group(gid)) }
             }
         }
 
@@ -140,8 +146,11 @@ fun AppRoot(nav: NavViewModel) {
             // The group's name, looked up from the invite (null while loading, "" if it can't be found).
             var groupName by remember(gid, code) { mutableStateOf<String?>(null) }
             var peekError by remember(gid, code) { mutableStateOf<String?>(null) }
+            var peekExpired by remember(gid, code) { mutableStateOf(false) }
             LaunchedEffect(gid, code) {
-                try { groupName = Repo.peek(gid, code) } catch (e: Exception) { groupName = ""; peekError = Api.friendly(e) }
+                try { groupName = Repo.peek(gid, code) } catch (e: Exception) {
+                    groupName = ""; peekError = Api.friendly(e); peekExpired = (e as? com.splitfree.data.ApiException)?.code == 410
+                }
             }
             WarmDialog("Join group?", onDismiss = { nav.pendingJoin.value = null }) {
                 Text(
@@ -151,12 +160,14 @@ fun AppRoot(nav: NavViewModel) {
                 Spacer(Modifier.height(10.dp))
                 when {
                     groupName == null -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
-                    peekError != null -> Text(peekError!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    peekError != null -> Text(if (peekExpired) "This invite has expired. The group no longer exists or the link was reset." else peekError!!,
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                     else -> Text(groupName!!, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface)
                 }
                 Spacer(Modifier.height(20.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                if (peekExpired) PrimaryButton("Dismiss", null, { nav.pendingJoin.value = null }, Modifier.fillMaxWidth())
+                else Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     SecondaryButton("Not now", null, { nav.pendingJoin.value = null }, Modifier.weight(1f))
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     PrimaryButton(if (busy) " " else "Join", null, {
@@ -200,7 +211,7 @@ fun SignInScreen() {
             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(36.dp))
-        PrimaryButton(if (busy) "Signing inâ€¦" else "Continue with Google", null, {
+        PrimaryButton(if (busy) "Signing in…" else "Continue with Google", null, {
             busy = true; error = null
             scope.launch {
                 try { Auth.signIn(context as Activity) } catch (e: Exception) {

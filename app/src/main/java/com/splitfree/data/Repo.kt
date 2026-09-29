@@ -230,6 +230,20 @@ object Repo {
         Api.post("/api/invite/respond", JSONObject().put("inviteId", invite.id).put("accept", accept))
             .optString("groupId").ifBlank { invite.groupId }
 
+    /** Pending invites whose group was deleted (they can only be dismissed). */
+    val expiredInvites = MutableStateFlow<Set<String>>(emptySet())
+
+    suspend fun checkInvites(ids: List<String>) {
+        if (ids.isEmpty()) return
+        val res = Api.post("/api/invite/check", JSONObject().put("ids", JSONArray(ids))).optJSONArray("expired") ?: return
+        expiredInvites.value = expiredInvites.value + (0 until res.length()).map { res.getString(it) }
+    }
+
+    suspend fun dismissInvite(invite: Invite) {
+        Api.post("/api/invite/dismiss", JSONObject().put("inviteId", invite.id))
+        invites.value = invites.value.filter { it.id != invite.id }
+    }
+
     /** Name of the group an invite points to (checks the code first). */
     suspend fun peek(gid: String, code: String): String =
         Api.post("/api/group/peek", JSONObject().put("groupId", gid).put("code", code)).optString("name")

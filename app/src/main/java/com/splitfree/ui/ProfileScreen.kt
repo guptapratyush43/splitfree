@@ -84,7 +84,7 @@ import kotlin.math.min
 
 private val genders = listOf("Male", "Female", "Other", "Prefer not to say")
 
-/** Edit your name, gender and picture (a gallery photo cropped to a circle, or one of the cartoons). */
+/** Edit your name and picture (a gallery photo cropped to a circle, or one of the cartoons). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EditProfileScreen(nav: NavViewModel) {
@@ -140,11 +140,6 @@ fun EditProfileScreen(nav: NavViewModel) {
             }
             Spacer(Modifier.height(16.dp))
             Field(name, { name = it.take(40) }, label = "Name", placeholder = "Your name")
-            Spacer(Modifier.height(20.dp))
-            SectionLabel("Gender")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                genders.forEach { g -> Chip(g, gender == g) { gender = if (gender == g) "" else g } }
-            }
             Spacer(Modifier.height(10.dp))
             Text(Auth.email, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 4.dp, top = 8.dp))

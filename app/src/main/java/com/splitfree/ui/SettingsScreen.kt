@@ -44,6 +44,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.BatteryAlert
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -86,8 +91,8 @@ fun AccountTab(nav: NavViewModel) {
 
         SectionLabel("Preferences", Modifier.padding(start = 20.dp, top = 18.dp))
         SettingRow("Backup settings", if (backupOn) "Automatic backup to your Google Drive is on" else "Automatic backup is off",
-            if (backupOn) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff, onClick = { nav.push(Screen.Backup) })
-        SettingRow("Notification settings", "Allow Split Free to notify you", Icons.Rounded.Notifications, onClick = {
+            if (backupOn) Icons.Outlined.CloudDone else Icons.Outlined.CloudOff, onClick = { nav.push(Screen.Backup) })
+        SettingRow("Notification settings", "Allow Split Free to notify you", Icons.Outlined.Notifications, onClick = {
             context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
         })
         val xiaomiLike = Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco", "oppo", "vivo", "realme", "oneplus")
@@ -95,11 +100,11 @@ fun AccountTab(nav: NavViewModel) {
             "Battery & Autostart",
             if (xiaomiLike) "Turn on Autostart and set Battery saver to “No restrictions” so notifications arrive on time"
             else "Set battery to “Unrestricted” so notifications arrive on time",
-            Icons.Rounded.BatteryAlert, onClick = {
+            Icons.Outlined.BatteryAlert, onClick = {
                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
             })
         var checking by remember { mutableStateOf(false) }
-        SettingRow("Check for updates", if (checking) "Checking…" else "You're on v${BuildConfig.VERSION_NAME}", Icons.Rounded.SystemUpdate, onClick = {
+        SettingRow("Check for updates", if (checking) "Checking…" else "You're on v${BuildConfig.VERSION_NAME}", Icons.Outlined.SystemUpdate, onClick = {
             if (!checking) {
                 checking = true
                 scope.launch {
@@ -161,8 +166,7 @@ fun AccountTab(nav: NavViewModel) {
                         confirm = null
                         scope.launch {
                             try {
-                                runCatching { Backup.deleteBackup() }
-                                Backup.setEnabled(false)
+                                Backup.wipeForAccountDeletion()
                                 Repo.deleteAccount()
                                 Auth.signOut(context)
                                 toast(context, "Account deleted")

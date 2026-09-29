@@ -23,6 +23,8 @@ export default {
         "/api/invite/respond": respondInvite,
         "/api/group/join": joinGroup,
         "/api/group/peek": peekGroup,
+        "/api/invite/check": checkInvites,
+        "/api/invite/dismiss": dismissInvite,
         "/api/group/leave": leaveGroup,
         "/api/group/remove": removeMember,
         "/api/account/delete": deleteAccount,
@@ -76,7 +78,7 @@ async function respondInvite(env, user, b, ctx) {
   const inv = await getDoc(env, `invites/${b.inviteId}`);
   if (!inv || inv.toEmail !== user.email) fail(403, "This invite isn't for you");
   if (inv.status !== "pending") fail(409, "This invite was already answered");
-  const g = await getGroup(env, inv.groupId);
+  const g = await liveGroupOrExpired(env, inv.groupId);
   const accept = !!b.accept;
 
   const writes = [
@@ -105,16 +107,45 @@ async function respondInvite(env, user, b, ctx) {
   return { ok: true, name: g.name, groupId: inv.groupId };
 }
 
+/** The group, or a 410 "expired" when it was deleted: invites and links to it no longer work. */
+async function liveGroupOrExpired(env, gid) {
+  const g = gid && (await getDoc(env, `groups/${gid}`));
+  if (!g || g.deleted) fail(410, "This invite has expired");
+  g.members = g.members || [];
+  return g;
+}
+
+/** Which of my pending invites point at groups that no longer exist. */
+async function checkInvites(env, user, b) {
+  const ids = (b.ids || []).slice(0, 20);
+  const expired = [];
+  for (const id of ids) {
+    const inv = await getDoc(env, `invites/${id}`);
+    if (!inv || inv.toEmail !== user.email) continue;
+    const g = await getDoc(env, `groups/${inv.groupId}`);
+    if (!g || g.deleted) expired.push(id);
+  }
+  return { expired };
+}
+
+/** Clears an expired invite so it never shows again. */
+async function dismissInvite(env, user, b) {
+  const inv = await getDoc(env, `invites/${b.inviteId}`);
+  if (!inv || inv.toEmail !== user.email) fail(403, "This invite isn't for you");
+  await commit(env, [patch(`invites/${b.inviteId}`, { status: "expired", answeredAt: Date.now() })]);
+  return { ok: true };
+}
+
 /** The group's name for the "Join group?" dialog, once the code checks out. */
 async function peekGroup(env, user, b) {
-  const g = await getGroup(env, b.groupId);
-  if (!b.code || g.joinCode !== b.code) fail(403, "This invite is no longer valid");
+  const g = await liveGroupOrExpired(env, b.groupId);
+  if (!b.code || g.joinCode !== b.code) fail(410, "This invite has expired");
   return { name: g.name, member: g.members.includes(user.uid) };
 }
 
 async function joinGroup(env, user, b, ctx) {
-  const g = await getGroup(env, b.groupId);
-  if (!b.code || g.joinCode !== b.code) fail(403, "This invite link is no longer valid");
+  const g = await liveGroupOrExpired(env, b.groupId);
+  if (!b.code || g.joinCode !== b.code) fail(410, "This invite has expired");
   if (g.members.includes(user.uid)) return { name: g.name };
   await commit(env, [...addMemberWrites(env, b.groupId, user), activity(env, b.groupId, user.uid, `${user.name} joined with the invite link`)]);
   const c = g.createdBy && (await getDoc(env, `users/${g.createdBy}`));

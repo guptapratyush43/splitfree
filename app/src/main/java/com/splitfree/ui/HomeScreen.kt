@@ -206,7 +206,8 @@ private fun GroupsTab(nav: NavViewModel) {
                                 else -> append("You are all settled up!")
                             }
                         },
-                        style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.weight(1f)
+                        style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
                     SortMenu(filter) { filter = it }
@@ -428,8 +429,8 @@ private fun NameTicker(names: List<String>) {
     }
     var i by remember(names) { mutableIntStateOf(0) }
     if (names.size > 1) androidx.compose.runtime.LaunchedEffect(names) {
-        // 250 ms slide + 500 ms on screen.
-        while (true) { kotlinx.coroutines.delay(750); i = (i + 1) % names.size }
+        // 250 ms slide + 1 s on screen.
+        while (true) { kotlinx.coroutines.delay(1250); i = (i + 1) % names.size }
     }
     androidx.compose.animation.AnimatedContent(
         targetState = i,
@@ -536,9 +537,12 @@ private fun InvitationsCapsule(onOpen: () -> Unit) {
 }
 
 @Composable
-fun InviteCard(invite: Invite, onJoined: (String) -> Unit = {}) {
+fun InviteCard(invite: Invite, onIgnore: (() -> Unit)? = null, onJoined: (String) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val expiredIds by Repo.expiredInvites.collectAsStateWithLifecycle()
+    var expiredNow by remember { mutableStateOf(false) }
+    val expired = expiredNow || invite.id in expiredIds
     var busy by remember { mutableStateOf(false) }
     var joining by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf<String?>(null) }
@@ -550,6 +554,22 @@ fun InviteCard(invite: Invite, onJoined: (String) -> Unit = {}) {
                 Text(invite.groupName, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 RowBody("${invite.fromName} invited you to join")
             }
+        }
+        if (expired) {
+            // The group was deleted before they could join: all that's left is to clear it away.
+            Text("This invite has expired. The group no longer exists.", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
+            Spacer(Modifier.height(14.dp))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                PrimaryButton(if (busy) " " else "Dismiss", null, {
+                    busy = true
+                    scope.launch {
+                        try { Repo.dismissInvite(invite) } catch (e: Exception) { toast(context, Api.friendly(e)) } finally { busy = false }
+                    }
+                }, Modifier.fillMaxWidth(), enabled = !busy)
+                if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
+            }
+            return@WarmCard
         }
         androidx.compose.animation.AnimatedVisibility(failed != null) {
             Text(failed.orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error,
@@ -571,6 +591,7 @@ fun InviteCard(invite: Invite, onJoined: (String) -> Unit = {}) {
                                 break
                             } catch (e: com.splitfree.data.ApiException) {
                                 if (e.code == 409 && attempt > 1) { gid = invite.groupId; break }
+                                if (e.code == 410) { expiredNow = true; return@launch }
                                 last = e
                                 if (e.code in 400..499) break
                             } catch (e: Exception) {
@@ -596,6 +617,14 @@ fun InviteCard(invite: Invite, onJoined: (String) -> Unit = {}) {
                 PrimaryButton(if (busy && joining) " " else "Accept", null, { answer(true) }, Modifier.fillMaxWidth(), enabled = !busy)
                 if (busy && joining) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
             }
+        }
+        // In the pop-up: close it and decide later (the invite waits in Activity).
+        if (onIgnore != null) {
+            Spacer(Modifier.height(6.dp))
+            Text("Ignore for now", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                    .clickable(enabled = !busy) { Haptics.tick(context); onIgnore() }.padding(vertical = 10.dp))
         }
     }
 }

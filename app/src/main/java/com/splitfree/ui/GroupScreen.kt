@@ -415,9 +415,11 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     var paidIt by remember { mutableStateOf<Debt?>(null) }
     val live = all[gid].orEmpty().filter { !it.deleted }
     // Settled: everything they took part in. Otherwise: what is behind the current balance.
-    val pending = if (n == 0L) settledFor(uid, live) else pendingFor(uid, live)
+    // Everything they took part in, newest first; the ones still behind their balance are "pending".
+    val pendingIds = if (n == 0L) emptySet() else pendingFor(uid, live).map { it.first.id }.toSet()
+    val pending = settledFor(uid, live)
     // On someone else's page, the expenses where they still owe you can be picked and marked as settled.
-    val owedToMe = if (uid == me || n == 0L) emptyMap() else pending.mapNotNull { (e, _) ->
+    val owedToMe = if (uid == me || n == 0L) emptyMap() else pending.filter { it.first.id in pendingIds }.mapNotNull { (e, _) ->
         if (e.settlement) null
         else Balances.settle(Balances.nets(listOf(e.flows))).filter { it.from == uid && it.to == me }.sumOf { it.amount }
             .takeIf { it > 0 }?.let { e.id to it }
@@ -487,7 +489,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
             }
             if (pending.isNotEmpty()) item {
                 Spacer(Modifier.height(8.dp))
-                SectionLabel(if (n == 0L) "All settled up expenses" else "Pending expenses", Modifier.padding(bottom = 0.dp))
+                SectionLabel(if (n == 0L) "All settled up expenses" else "Expenses", Modifier.padding(bottom = 0.dp))
                 if (owedToMe.isNotEmpty()) Text("You can also long-press an expense you're owed to mark it as settled.", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
             }
@@ -510,7 +512,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                 items(list, key = { "p" + it.first.id }) { (e, effect) ->
                     val pickable = e.id in owedToMe
                     val toggle = { if (e.id in picked) picked.remove(e.id) else picked.add(e.id); Unit }
-                    PendingRow(group, e, effect, uid, me, pickable = pickable && selecting, picked = e.id in picked, onPick = toggle,
+                    PendingRow(group, e, effect, uid, me, settled = !e.settlement && e.id !in pendingIds, pickable = pickable && selecting, picked = e.id in picked, onPick = toggle,
                         onLongClick = if (pickable) ({ selecting = true; if (e.id !in picked) picked.add(e.id) }) else null) {
                         if (selecting && pickable) toggle() else nav.push(Screen.Detail(gid, e.id))
                     }
@@ -561,7 +563,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
 
 /** One expense behind a member's balance: category, title, who added it and what it means for them. */
 @Composable
-private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: String,
+private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: String, settled: Boolean = false,
                        pickable: Boolean = false, picked: Boolean = false, onPick: () -> Unit = {}, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     WarmCard(onClick = onClick, onLongClick = onLongClick, padding = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -573,7 +575,17 @@ private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: 
                     val to = e.shares.keys.firstOrNull()?.let { if (it == me) "you" else group.name(it, me) } ?: "someone"
                     "$from paid $to"
                 } else e.title
-                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (settled) {
+                        // A quiet tag: already cleared.
+                        Spacer(Modifier.width(6.dp))
+                        Text("Settled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(50))
+                                .padding(horizontal = 7.dp, vertical = 1.dp))
+                    }
+                }
                 Text("${e.category.label} · Added by ${group.name(e.createdBy, me)}", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

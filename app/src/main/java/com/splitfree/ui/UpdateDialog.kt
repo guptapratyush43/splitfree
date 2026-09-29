@@ -1,4 +1,4 @@
-﻿package com.splitfree.ui
+package com.splitfree.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -63,7 +63,7 @@ fun UpdateDialog(release: UpdateManager.Release) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     androidx.compose.material3.CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(10.dp))
-                    Text("Checking for the latest versionâ€¦", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Checking for the latest version…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 return@WarmCard
             }
@@ -80,7 +80,7 @@ fun UpdateDialog(release: UpdateManager.Release) {
                         // Lines that aren't bullets are section headings, like "New features" or "Fixes".
                         val body = androidx.compose.ui.text.buildAnnotatedString {
                             release.notes.lines().filter { it.isNotBlank() }.forEachIndexed { i, line ->
-                                val heading = line.isNotBlank() && !line.startsWith("â€¢")
+                                val heading = line.isNotBlank() && !line.startsWith("•")
                                 if (i > 0) append("\n")
                                 if (heading && i > 0) append("\n")
                                 if (heading) this.withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)) { append(line.trim()) }
@@ -94,7 +94,7 @@ fun UpdateDialog(release: UpdateManager.Release) {
             Spacer(Modifier.height(18.dp))
             when (val d = download) {
                 is Download.Running -> {
-                    Text(d.progress?.let { "Downloadingâ€¦ ${(it * 100).toInt()}%" } ?: "Downloadingâ€¦", style = MaterialTheme.typography.bodyMedium,
+                    Text(d.progress?.let { "Downloading… ${(it * 100).toInt()}%" } ?: "Downloading…", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceVariant)) {
