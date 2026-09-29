@@ -1,4 +1,4 @@
-package com.splitfree.ui
+﻿package com.splitfree.ui
 
 import android.app.Activity
 import android.widget.Toast
@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.only
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -43,43 +44,8 @@ import com.splitfree.data.Recurring
 import com.splitfree.data.Repo
 import kotlinx.coroutines.launch
 
-/**
- * Short messages at the bottom of the screen. Drawn by the app itself (not the
- * system toast, which shows a launcher icon some phones cache from old versions).
- */
-object Toasts {
-    data class Msg(val text: String, val quiet: Boolean, val at: Long = System.nanoTime())
-    val current = kotlinx.coroutines.flow.MutableStateFlow<Msg?>(null)
-    fun show(msg: String, quiet: Boolean = false) { current.value = Msg(msg, quiet) }
-}
-
-@Suppress("UNUSED_PARAMETER")
-fun toast(context: android.content.Context, msg: String) = Toasts.show(msg)
-
-@Composable
-private fun ToastHost(modifier: Modifier) {
-    val current by Toasts.current.collectAsStateWithLifecycle()
-    var shown by remember { mutableStateOf<Toasts.Msg?>(null) }
-    LaunchedEffect(current) {
-        val c = current ?: return@LaunchedEffect
-        shown = c
-        kotlinx.coroutines.delay(2200)
-        shown = null
-    }
-    var last by remember { mutableStateOf(Toasts.Msg("", false)) }
-    if (shown != null) last = shown!!
-    androidx.compose.animation.AnimatedVisibility(shown != null, modifier,
-        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(220)) { it / 2 },
-        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180))) {
-        // Quiet messages ("No invitations at the moment") are smaller and faded.
-        Text(last.text, style = if (last.quiet) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.background.copy(alpha = if (last.quiet) 0.9f else 1f),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 96.dp)
-                .background(MaterialTheme.colorScheme.onBackground.copy(alpha = if (last.quiet) 0.55f else 0.92f), androidx.compose.foundation.shape.RoundedCornerShape(50))
-                .padding(horizontal = if (last.quiet) 14.dp else 18.dp, vertical = if (last.quiet) 8.dp else 11.dp))
-    }
-}
+/** Android's own toast, which carries the app icon. */
+fun toast(context: android.content.Context, msg: String) = Toast.makeText(context.applicationContext, msg, Toast.LENGTH_SHORT).show()
 
 @Composable
 fun AppRoot(nav: NavViewModel) {
@@ -144,8 +110,6 @@ fun AppRoot(nav: NavViewModel) {
             Screen.Scan -> ScanScreen(nav)
         } } } }
 
-        ToastHost(Modifier.align(Alignment.BottomCenter))
-
         // Opened from an invite notification: answer it right here.
         val showInvites by nav.showInvites.collectAsStateWithLifecycle()
         val invites by Repo.invites.collectAsStateWithLifecycle()
@@ -161,7 +125,7 @@ fun AppRoot(nav: NavViewModel) {
             if (showInvites && invites.isEmpty()) { if (!sawInvite) kotlinx.coroutines.delay(5000); nav.showInvites.value = false; sawInvite = false }
         }
         if (showInvites) WarmDialog(if (invites.size > 1) "Group invitations" else "Group invitation", onDismiss = { nav.showInvites.value = false }) {
-            if (invites.isEmpty()) Footnote("Loading your invitation…")
+            if (invites.isEmpty()) Footnote("Loading your invitationâ€¦")
             invites.forEachIndexed { i, inv ->
                 if (i > 0) Spacer(Modifier.height(10.dp))
                 InviteCard(inv) { gid -> nav.push(Screen.Group(gid)) }
@@ -172,15 +136,30 @@ fun AppRoot(nav: NavViewModel) {
 
         pendingJoin?.let { (gid, code) ->
             var busy by remember { mutableStateOf(false) }
+            val byQr by nav.joinByQr.collectAsStateWithLifecycle()
+            // The group's name, looked up from the invite (null while loading, "" if it can't be found).
+            var groupName by remember(gid, code) { mutableStateOf<String?>(null) }
+            var peekError by remember(gid, code) { mutableStateOf<String?>(null) }
+            LaunchedEffect(gid, code) {
+                try { groupName = Repo.peek(gid, code) } catch (e: Exception) { groupName = ""; peekError = Api.friendly(e) }
+            }
             WarmDialog("Join group?", onDismiss = { nav.pendingJoin.value = null }) {
                 Text(
-                    "You opened a Split Free invite link. Join this group so you can see and add its expenses?",
+                    if (byQr) "You scanned a Split Free invite QR code." else "You opened a Split Free invite link.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                Spacer(Modifier.height(10.dp))
+                when {
+                    groupName == null -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
+                    peekError != null -> Text(peekError!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    else -> Text(groupName!!, style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface)
+                }
                 Spacer(Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     SecondaryButton("Not now", null, { nav.pendingJoin.value = null }, Modifier.weight(1f))
-                    PrimaryButton(if (busy) "Joining…" else "Join", null, {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    PrimaryButton(if (busy) " " else "Join", null, {
                         busy = true
                         scope.launch {
                             try {
@@ -192,7 +171,9 @@ fun AppRoot(nav: NavViewModel) {
                                 toast(context, Api.friendly(e)); busy = false
                             }
                         }
-                    }, Modifier.weight(1f), enabled = !busy)
+                    }, Modifier.fillMaxWidth(), enabled = !busy && peekError == null)
+                    if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    }
                 }
             }
         }
@@ -219,7 +200,7 @@ fun SignInScreen() {
             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(36.dp))
-        PrimaryButton(if (busy) "Signing in…" else "Continue with Google", null, {
+        PrimaryButton(if (busy) "Signing inâ€¦" else "Continue with Google", null, {
             busy = true; error = null
             scope.launch {
                 try { Auth.signIn(context as Activity) } catch (e: Exception) {

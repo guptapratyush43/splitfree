@@ -200,7 +200,7 @@ fun ExpenseEditor(nav: NavViewModel, startGroup: String?, expenseId: String?, pa
                         .padding(start = if (picked == null) 14.dp else 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
                 ) {
                     if (picked != null) {
-                        GroupBadge(group.name, group.id, 28.dp, group.cover)
+                        GroupBadge(group.name, group.id, 28.dp, group.cover, round = true)
                         Spacer(Modifier.width(8.dp))
                         Text("All of ${group.name}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(vertical = 4.dp))
@@ -309,7 +309,7 @@ fun ExpenseEditor(nav: NavViewModel, startGroup: String?, expenseId: String?, pa
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().clickable { gid = g.id; dialog = null }.padding(horizontal = 14.dp, vertical = 12.dp)
                     ) {
-                        GroupBadge(g.name, g.id, 36.dp, g.cover)
+                        GroupBadge(g.name, g.id, 36.dp, g.cover, round = true)
                         Spacer(Modifier.width(12.dp))
                         Text(g.name, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))

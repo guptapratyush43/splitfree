@@ -1,4 +1,4 @@
-package com.splitfree.ui
+﻿package com.splitfree.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -44,6 +45,7 @@ fun UpdateDialog(release: UpdateManager.Release) {
     val context = LocalContext.current
     val download by UpdateManager.download.collectAsStateWithLifecycle()
     val running = download is Download.Running
+    val verifying by UpdateManager.verifying.collectAsStateWithLifecycle()
     Dialog(onDismissRequest = { if (!running) UpdateManager.close() }, properties = DialogProperties(dismissOnClickOutside = !running)) {
         WarmCard(padding = 22.dp, background = MaterialTheme.colorScheme.background) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -54,6 +56,16 @@ fun UpdateDialog(release: UpdateManager.Release) {
                 Spacer(Modifier.height(4.dp))
                 Text("You have v${UpdateManager.currentVersion}", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (verifying) {
+                // Making sure this is the newest release before offering it.
+                Spacer(Modifier.height(18.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.material3.CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(10.dp))
+                    Text("Checking for the latest versionâ€¦", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                return@WarmCard
             }
             if (release.notes.isNotBlank()) {
                 Spacer(Modifier.height(14.dp))
@@ -68,7 +80,7 @@ fun UpdateDialog(release: UpdateManager.Release) {
                         // Lines that aren't bullets are section headings, like "New features" or "Fixes".
                         val body = androidx.compose.ui.text.buildAnnotatedString {
                             release.notes.lines().filter { it.isNotBlank() }.forEachIndexed { i, line ->
-                                val heading = line.isNotBlank() && !line.startsWith("•")
+                                val heading = line.isNotBlank() && !line.startsWith("â€¢")
                                 if (i > 0) append("\n")
                                 if (heading && i > 0) append("\n")
                                 if (heading) this.withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)) { append(line.trim()) }
@@ -82,7 +94,7 @@ fun UpdateDialog(release: UpdateManager.Release) {
             Spacer(Modifier.height(18.dp))
             when (val d = download) {
                 is Download.Running -> {
-                    Text(d.progress?.let { "Downloading… ${(it * 100).toInt()}%" } ?: "Downloading…", style = MaterialTheme.typography.bodyMedium,
+                    Text(d.progress?.let { "Downloadingâ€¦ ${(it * 100).toInt()}%" } ?: "Downloadingâ€¦", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceVariant)) {

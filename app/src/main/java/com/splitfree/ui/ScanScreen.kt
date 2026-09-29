@@ -130,6 +130,7 @@ fun ScanScreen(nav: NavViewModel) {
         }
         Haptics.success(ctx)
         nav.pop()
+        nav.joinByQr.value = true
         nav.pendingJoin.value = invite
     }
 

@@ -257,7 +257,8 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
             item(key = "m$sort$month") {
                 Row(verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null).fillMaxWidth().padding(start = 24.dp, end = 20.dp, top = if (si == 0) 0.dp else 10.dp, bottom = 6.dp)) {
-                    SectionLabel(month, Modifier.weight(1f).padding(bottom = 0.dp))
+                    Text(month.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     if (si == 0 && expenses.size > 1) SortCapsule(sort.label) { sort = ExpenseSort.entries[(sort.ordinal + 1) % ExpenseSort.entries.size] }
                 }
             }

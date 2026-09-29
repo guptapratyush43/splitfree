@@ -230,6 +230,10 @@ object Repo {
         Api.post("/api/invite/respond", JSONObject().put("inviteId", invite.id).put("accept", accept))
             .optString("groupId").ifBlank { invite.groupId }
 
+    /** Name of the group an invite points to (checks the code first). */
+    suspend fun peek(gid: String, code: String): String =
+        Api.post("/api/group/peek", JSONObject().put("groupId", gid).put("code", code)).optString("name")
+
     suspend fun join(gid: String, code: String): String =
         Api.post("/api/group/join", JSONObject().put("groupId", gid).put("code", code)).optString("name")
 

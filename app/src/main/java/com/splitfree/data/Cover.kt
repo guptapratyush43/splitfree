@@ -1,4 +1,4 @@
-package com.splitfree.data
+﻿package com.splitfree.data
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,7 +10,7 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
- * Finds a landscape photo for a place named in the group ("Goa trip" → Goa)
+ * Finds a landscape photo for a place named in the group ("Goa trip" â†’ Goa)
  * using Wikipedia's free REST API, then stores the URL on the group so every
  * member sees the same banner and nobody looks it up twice.
  */
@@ -124,7 +124,7 @@ object Cover {
         return try {
             c.connectTimeout = 10_000
             c.readTimeout = 15_000
-            c.setRequestProperty("User-Agent", "SplitFree/2.9 (Android expense-splitting app)")
+            c.setRequestProperty("User-Agent", "SplitFree/3.0 (Android expense-splitting app)")
             when (c.responseCode) {
                 200 -> JSONObject(c.inputStream.use { String(it.readBytes()) })
                 in 500..599 -> throw java.io.IOException("Wikipedia is busy")

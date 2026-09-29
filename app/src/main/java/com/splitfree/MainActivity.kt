@@ -37,6 +37,8 @@ class NavViewModel : ViewModel() {
     val stack = MutableStateFlow<List<Screen>>(listOf(Screen.Home))
     /** An invite link (group id, code) waiting for the user to confirm joining. */
     val pendingJoin = MutableStateFlow<Pair<String, String>?>(null)
+    /** True when [pendingJoin] came from scanning a QR code, false for a tapped link. */
+    val joinByQr = MutableStateFlow(false)
     /** Bottom tab on the home screen: 0 Groups, 1 Activity, 2 Account. */
     val homeTab = MutableStateFlow(0)
     /** Opened from an invite notification: show the Accept / Reject popup. */
@@ -80,7 +82,7 @@ class MainActivity : ComponentActivity() {
         intent ?: return
         // https://…/j/{groupId}/{code}
         intent.data?.pathSegments?.let { seg ->
-            if (seg.size >= 3 && seg[0] == "j") nav.pendingJoin.value = seg[1] to seg[2]
+            if (seg.size >= 3 && seg[0] == "j") { nav.joinByQr.value = false; nav.pendingJoin.value = seg[1] to seg[2] }
         }
         // Tapped a push: FCM puts the data payload into the extras.
         if (intent.getStringExtra("kind") == "invite") {

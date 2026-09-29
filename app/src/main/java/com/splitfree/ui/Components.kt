@@ -63,7 +63,7 @@ fun WarmCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (onClick != null || onLongClick != null) Modifier.pressScale(src) else Modifier)
+            .then(if (onClick != null || onLongClick != null) Modifier.pressScale(src, 0.97f) else Modifier)
             .clip(shape)
             .background(background, shape)
             .border(borderWidth, borderColor, shape)

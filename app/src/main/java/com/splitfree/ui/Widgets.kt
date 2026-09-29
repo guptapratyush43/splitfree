@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
 import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.animation.core.animateFloat
@@ -258,10 +259,13 @@ fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 @Composable
-fun WarmDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+fun WarmDialog(title: String, onDismiss: () -> Unit, action: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         WarmCard(padding = 22.dp, background = MaterialTheme.colorScheme.background) {
-            Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                if (action != null) action()
+            }
             Spacer(Modifier.height(14.dp))
             content()
         }
@@ -419,8 +423,7 @@ fun SortCapsule(label: String, onClick: () -> Unit) {
 @Composable
 fun AlertDot(modifier: Modifier = Modifier) {
     val red = MaterialTheme.colorScheme.error
-    Box(modifier.size(11.dp).rippleRings(red, spread = 8.dp, period = 1800)
-        .background(MaterialTheme.colorScheme.background, CircleShape).padding(2.dp).background(red, CircleShape))
+    Box(modifier.size(8.dp).rippleRings(red, spread = 8.dp, period = 1800).background(red, CircleShape))
 }
 
 @Composable
@@ -438,7 +441,7 @@ fun BottomTabs(tabs: List<Pair<String, ImageVector>>, selected: Int, dots: Set<I
                 ) {
                     Box {
                         Icon(icon, label, tint = if (active) scheme.primary else scheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
-                        androidx.compose.animation.AnimatedVisibility(i in dots, Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp),
+                        androidx.compose.animation.AnimatedVisibility(i in dots, Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-3).dp),
                             enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) { AlertDot() }
                     }
                     Spacer(Modifier.height(3.dp))
@@ -451,9 +454,9 @@ fun BottomTabs(tabs: List<Pair<String, ImageVector>>, selected: Int, dots: Set<I
 
 /** Rounded-square badge with the group's initial, like Splitwise's group image. */
 @Composable
-fun GroupBadge(name: String, key: String, size: Dp = 52.dp, photo: String = "") {
+fun GroupBadge(name: String, key: String, size: Dp = 52.dp, photo: String = "", round: Boolean = false) {
     val c = groupTint(key)
-    val shape = RoundedCornerShape(size * 0.28f)
+    val shape = if (round) CircleShape else RoundedCornerShape(size * 0.28f)
     Box(contentAlignment = Alignment.Center, modifier = Modifier.size(size).clip(shape).background(c.copy(alpha = 0.16f), shape)) {
         Text(name.trim().take(1).uppercase().ifEmpty { "?" }, color = c, style = MaterialTheme.typography.headlineSmall, fontSize = (size.value * 0.42f).sp)
         // The place photo, when one was found, covers the letter once it loads.
@@ -547,10 +550,25 @@ fun CircleIcon(icon: ImageVector, label: String, onClick: () -> Unit) {
     ) { Icon(icon, label, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(26.dp)) }
 }
 
-/** Gentle press feedback: the element sinks to 96% while held. */
+/**
+ * Press feedback: the element dips while held and springs back on release.
+ * Even a quick tap shows the full dip, so every tap visibly registers.
+ */
 @Composable
-fun Modifier.pressScale(source: MutableInteractionSource): Modifier {
-    val pressed by source.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(120), label = "press")
-    return this.graphicsLayer { scaleX = scale; scaleY = scale }
+fun Modifier.pressScale(source: MutableInteractionSource, depth: Float = 0.93f): Modifier {
+    val scale = remember { androidx.compose.animation.core.Animatable(1f) }
+    androidx.compose.runtime.LaunchedEffect(source) {
+        source.interactions.collect { i ->
+            when (i) {
+                is androidx.compose.foundation.interaction.PressInteraction.Press ->
+                    launch { scale.animateTo(depth, tween(90)) }
+                is androidx.compose.foundation.interaction.PressInteraction.Release,
+                is androidx.compose.foundation.interaction.PressInteraction.Cancel -> launch {
+                    if (scale.value > depth + 0.01f) scale.animateTo(depth, tween(70))
+                    scale.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 700f))
+                }
+            }
+        }
+    }
+    return this.graphicsLayer { scaleX = scale.value; scaleY = scale.value }
 }

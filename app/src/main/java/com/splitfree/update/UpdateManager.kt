@@ -47,6 +47,9 @@ object UpdateManager {
     private val _offer = MutableStateFlow<Release?>(null)
     /** The release to show in the pop-up, or null. */
     val offer: StateFlow<Release?> = _offer.asStateFlow()
+    private val _verifying = MutableStateFlow(false)
+    /** True while the pop-up double-checks with GitHub that it shows the newest version. */
+    val verifying: StateFlow<Boolean> = _verifying.asStateFlow()
     private val _download = MutableStateFlow<Download>(Download.Idle)
     val download: StateFlow<Download> = _download.asStateFlow()
 
@@ -85,13 +88,23 @@ object UpdateManager {
      * passed). A version the user ignored is never offered again; only a newer one is.
      */
     suspend fun checkOnLaunch() {
-        // Every launch asks GitHub; offline, it falls back to what the daily check found.
-        runCatching { checkInBackground() }
-        val release = remembered() ?: return
         val ignored = prefs.getString("ignored", null)
-        if (isNewer(release.version, currentVersion) && (ignored == null || isNewer(release.version, ignored))) {
-            _offer.value = release
-        }
+        fun offerable(r: Release) = isNewer(r.version, currentVersion) && (ignored == null || isNewer(r.version, ignored))
+        // Show what the last check found at once, with a spinner, while asking GitHub for the newest.
+        val cached = remembered()?.takeIf { offerable(it) }
+        val started = System.currentTimeMillis()
+        if (cached != null) { _verifying.value = true; _offer.value = cached }
+        try {
+            val fresh = runCatching { fetch() }.getOrNull()
+            if (fresh != null) {
+                prefs.edit().putLong("last_check", System.currentTimeMillis()).apply()
+                if (isNewer(fresh.version, currentVersion)) remember(fresh)
+                // Keep the spinner up for at least a second so the switch never flickers.
+                if (cached != null) kotlinx.coroutines.delay((1000 - (System.currentTimeMillis() - started)).coerceAtLeast(0))
+                if (offerable(fresh)) _offer.value = fresh
+                else if (cached != null && _download.value is Download.Idle) _offer.value = null
+            }
+        } finally { _verifying.value = false }
     }
 
     private fun remember(r: Release) = prefs.edit()
@@ -128,6 +141,9 @@ object UpdateManager {
             readTimeout = 15_000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("User-Agent", "SplitFree-Android")
+            // Always the live answer, never a cached one that could point at an older release.
+            useCaches = false
+            setRequestProperty("Cache-Control", "no-cache")
         }
         try {
             if (c.responseCode != 200) throw IOException("GitHub said ${c.responseCode}")
@@ -172,6 +188,9 @@ object UpdateManager {
                     connectTimeout = 20_000
                     readTimeout = 60_000
                     setRequestProperty("User-Agent", "SplitFree-Android")
+            // Always the live answer, never a cached one that could point at an older release.
+            useCaches = false
+            setRequestProperty("Cache-Control", "no-cache")
                 }
                 try {
                     if (c.responseCode != 200) throw IOException("Download failed (${c.responseCode}).")

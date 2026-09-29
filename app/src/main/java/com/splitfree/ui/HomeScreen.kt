@@ -212,9 +212,6 @@ private fun GroupsTab(nav: NavViewModel) {
                     SortMenu(filter) { filter = it }
                 }
             }
-            if (invites.isNotEmpty()) {
-                items(invites, key = { "inv" + it.id }) { Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) { InviteCard(it) { gid -> nav.push(Screen.Group(gid)) } } }
-            }
             if (loaded && groups.isEmpty()) item {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 28.dp)) {
                     IconBubble(Icons.Rounded.Groups)
@@ -231,23 +228,20 @@ private fun GroupsTab(nav: NavViewModel) {
             }
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp)) {
-            ScanPill { nav.push(Screen.Scan) }
-            FloatingAdd("New group", Icons.Rounded.GroupAdd, { creating = true })
-        }
+        FloatingAdd("New group", Icons.Rounded.GroupAdd, { creating = true }, Modifier.align(Alignment.BottomEnd).padding(20.dp))
     }
 
-    if (creating) NewGroupDialog(onDismiss = { creating = false }) { id -> creating = false; nav.push(Screen.Group(id)) }
+    if (creating) NewGroupDialog(onDismiss = { creating = false }, onScan = { creating = false; nav.push(Screen.Scan) }) { id -> creating = false; nav.push(Screen.Group(id)) }
     qrFor?.let { g -> InviteQrDialog(g) { qrFor = null } }
     // Back closes an open card panel first.
     androidx.activity.compose.BackHandler(menuFor != null) { menuFor = null }
 }
 
 @Composable
-fun NewGroupDialog(onDismiss: () -> Unit, onCreated: (String) -> Unit) {
+fun NewGroupDialog(onDismiss: () -> Unit, onScan: (() -> Unit)? = null, onCreated: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
-    WarmDialog("New group", onDismiss = onDismiss) {
+    // Joining someone else's group instead? Scan their QR code from here.
+    WarmDialog("New group", onDismiss = onDismiss, action = onScan?.let { scan -> { ActionPill("Scan QR", scan, icon = Icons.Rounded.QrCodeScanner) } }) {
         Field(name, { name = it.take(60) }, label = "Group name", placeholder = "e.g. Goa trip, Flat 4B")
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -337,27 +331,6 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
     }
 }
 
-/** "Scan QR": the lighter partner of the New group button, same height and shape. */
-@Composable
-private fun ScanPill(onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val ctx = LocalContext.current
-    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val pill = androidx.compose.foundation.shape.RoundedCornerShape(50)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.pressScale(src)
-            .shadow(8.dp, pill, ambientColor = scheme.primary, spotColor = scheme.primary)
-            .clip(pill).background(scheme.surface, pill).border(1.dp, scheme.primary.copy(alpha = 0.35f), pill)
-            .clickable(interactionSource = src, indication = null) { Haptics.press(ctx); onClick() }
-            .padding(horizontal = 18.dp, vertical = 15.dp)
-    ) {
-        Icon(Icons.Rounded.QrCodeScanner, null, tint = scheme.primary, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("Scan QR", style = MaterialTheme.typography.titleSmall, color = scheme.primary)
-    }
-}
-
 private val filterNames = listOf("All groups", "Outstanding balances", "Groups you owe", "Groups that owe you")
 
 /**
@@ -385,7 +358,7 @@ private fun SortMenu(selected: Int, onPick: (Int) -> Unit) {
                     androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)),
                 exit = androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(150), targetScale = 0.7f, transformOrigin = origin) +
                     androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(130))) {
-                val shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+                val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
                 Column(
                     Modifier.padding(4.dp).width(230.dp).shadow(14.dp, shape).clip(shape)
                         .background(MaterialTheme.colorScheme.surface, shape)
@@ -552,7 +525,7 @@ private fun InvitationsCapsule(onOpen: () -> Unit) {
             .border(1.dp, if (pending) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline, pill)
             .clickable(interactionSource = src, indication = null) {
                 Haptics.tick(ctx)
-                if (pending) onOpen() else Toasts.show("No invitations at the moment", quiet = true)
+                if (pending) onOpen() else toast(ctx, "No invitations at the moment")
             }
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
@@ -683,14 +656,20 @@ private fun ActivityTab(nav: NavViewModel) {
             Spacer(Modifier.height(10.dp))
         }
         // Tapping "Invitations" shows each waiting invite as a card to accept or reject.
-        if (showInv && invites.isNotEmpty()) {
-            item(key = "invlabel") { SectionLabel("Invitations", Modifier.padding(start = 24.dp, top = 4.dp)) }
-            items(invites, key = { "ai" + it.id }) { inv ->
-                Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null).padding(horizontal = 20.dp, vertical = 6.dp)) {
-                    InviteCard(inv) { gid -> nav.push(Screen.Group(gid)) }
+        item(key = "invites") {
+            androidx.compose.animation.AnimatedVisibility(showInv && invites.isNotEmpty(),
+                enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(260, delayMillis = 60)),
+                exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))) {
+                Column {
+                    SectionLabel("Invitations", Modifier.padding(start = 24.dp, top = 4.dp))
+                    invites.forEach { inv ->
+                        Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) { InviteCard(inv) { gid -> nav.push(Screen.Group(gid)) } }
+                    }
+                    Spacer(Modifier.height(10.dp))
                 }
             }
-            item(key = "invgap") { Spacer(Modifier.height(10.dp)) }
         }
         when {
             items == null -> item { Spacer(Modifier.height(24.dp)); Footnote("Loading…") }

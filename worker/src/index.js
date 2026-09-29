@@ -22,6 +22,7 @@ export default {
         "/api/notify": notify,
         "/api/invite/respond": respondInvite,
         "/api/group/join": joinGroup,
+        "/api/group/peek": peekGroup,
         "/api/group/leave": leaveGroup,
         "/api/group/remove": removeMember,
         "/api/account/delete": deleteAccount,
@@ -102,6 +103,13 @@ async function respondInvite(env, user, b, ctx) {
     });
   }
   return { ok: true, name: g.name, groupId: inv.groupId };
+}
+
+/** The group's name for the "Join group?" dialog, once the code checks out. */
+async function peekGroup(env, user, b) {
+  const g = await getGroup(env, b.groupId);
+  if (!b.code || g.joinCode !== b.code) fail(403, "This invite is no longer valid");
+  return { name: g.name, member: g.members.includes(user.uid) };
 }
 
 async function joinGroup(env, user, b, ctx) {
