@@ -76,22 +76,22 @@ object Backup {
     }
 
     /**
-     * Something changed: back up a minute later. Replacing the pending job
-     * means a burst of edits produces one backup, not one per edit.
+     * Something changed: back up right away. Replacing the pending job means the
+     * handful of writes behind one action produces one backup, not several.
      */
     fun onDataChanged() {
         if (!enabled.value || !::app.isInitialized) return
-        // While the app is open: back up 5 seconds after the last change.
+        // While the app is open: back up a moment after the change (the same action's writes settle first).
         pending?.cancel()
         pending = scope.launch {
-            kotlinx.coroutines.delay(5_000)
+            kotlinx.coroutines.delay(1_000)
             runCatching { backupNow() }
         }
         // Safety net if the app is closed before that runs.
         WorkManager.getInstance(app).enqueueUniqueWork(
             "backup-soon", androidx.work.ExistingWorkPolicy.REPLACE,
             androidx.work.OneTimeWorkRequestBuilder<BackupWorker>()
-                .setInitialDelay(2, TimeUnit.MINUTES)
+                .setInitialDelay(15, TimeUnit.SECONDS)
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
         )
     }

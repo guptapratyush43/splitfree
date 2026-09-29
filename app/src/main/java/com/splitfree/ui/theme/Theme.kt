@@ -50,7 +50,7 @@ private val LightScheme = lightColorScheme(
 
 private val DarkScheme = darkColorScheme(
     primary = ClayDark,
-    onPrimary = Color(0xFF1C1340),
+    onPrimary = Color(0xFF2B1710),
     primaryContainer = WarmRaised,
     onPrimaryContainer = ClayDark,
     secondary = ParchmentSecondary,

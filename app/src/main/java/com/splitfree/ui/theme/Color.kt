@@ -2,9 +2,9 @@ package com.splitfree.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Warm, paper-like light surfaces with a royal violet accent.
-val Clay = Color(0xFF5B3FD1)
-val ClayPressed = Color(0xFF4A31B4)
+// Warm, paper-like light surfaces with a warm clay-orange accent.
+val Clay = Color(0xFFC15F3C)
+val ClayPressed = Color(0xFFA84F30)
 val CreamBackground = Color(0xFFFAF9F5)
 val CreamSurface = Color(0xFFFFFFFF)
 val CreamRaised = Color(0xFFF0EEE6)
@@ -13,8 +13,8 @@ val InkPrimary = Color(0xFF1F1E1D)
 val InkSecondary = Color(0xFF5C5A54)
 
 // Softened, low-glare dark tones rather than pure black.
-val ClayDark = Color(0xFFB3A2FF)
-val ClayDarkPressed = Color(0xFF9D89F5)
+val ClayDark = Color(0xFFD97757)
+val ClayDarkPressed = Color(0xFFC2664A)
 val WarmBackground = Color(0xFF1F1E1D)
 val WarmSurface = Color(0xFF262624)
 val WarmRaised = Color(0xFF30302E)
@@ -34,6 +34,6 @@ val WarningDark = Color(0xFFE0B054)
 val DangerLight = Color(0xFFA3352A)
 val DangerDark = Color(0xFFE58A7C)
 
-// "You owe" amounts: warm coral, so they never read as the accent.
-val OweLight = Color(0xFFC8522B)
-val OweDark = Color(0xFFF2946F)
+// "You owe" amounts: a clear red, so they never read as the orange accent.
+val OweLight = Color(0xFFC62838)
+val OweDark = Color(0xFFFF8A8A)

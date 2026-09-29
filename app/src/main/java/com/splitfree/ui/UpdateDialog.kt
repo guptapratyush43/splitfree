@@ -60,8 +60,12 @@ fun UpdateDialog(release: UpdateManager.Release) {
                     Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant).verticalScroll(rememberScrollState())
                 ) {
-                    Text(release.notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.fillMaxWidth().padding(14.dp))
+                    Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                        Text("What's new", style = MaterialTheme.typography.titleSmall,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                        Spacer(Modifier.height(6.dp))
+                        Text(release.notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                    }
                 }
             }
             Spacer(Modifier.height(18.dp))

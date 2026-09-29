@@ -47,6 +47,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.clipToBounds
@@ -90,10 +97,12 @@ fun HomeScreen(nav: NavViewModel) {
             label = "tab", modifier = Modifier.weight(1f)
         ) { t ->
             tabs.SaveableStateProvider("tab$t") {
+                // Groups draws its mist up under the status bar; the other tabs start below it.
+                val below = Modifier.fillMaxSize().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top))
                 when (t) {
                     0 -> GroupsTab(nav)
-                    1 -> ActivityTab(nav)
-                    else -> AccountTab(nav)
+                    1 -> Box(below) { ActivityTab(nav) }
+                    else -> Box(below) { AccountTab(nav) }
                 }
             }
         }
@@ -142,11 +151,18 @@ private fun GroupsTab(nav: NavViewModel) {
         when (filter) { 1 -> n != 0L; 2 -> n < 0; 3 -> n > 0; else -> true }
     }
 
+    val list = androidx.compose.foundation.lazy.rememberLazyListState()
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 110.dp)) {
+        // Coloured mist behind the title, reaching up under the status bar; it scrolls away with the list.
+        Mist(list)
+        LazyColumn(Modifier.fillMaxSize().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)),
+            state = list, contentPadding = PaddingValues(bottom = 110.dp)) {
             // ---- app bar: search, new group ----
             item {
-                HoliHeader("Split Free")
+                Box(Modifier.fillMaxWidth().height(HeaderHeight)) {
+                    Text("Split Free", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp))
+                }
                 // Search capsule: tap to type.
                 SearchCapsule(query, { query = it }, focus, Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp)) { searching = it }
             }
@@ -277,7 +293,7 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
                 }
                 val tagColor = when {
                     net > 0 -> androidx.compose.ui.graphics.Color(0xFF9BE8A8)
-                    net < 0 -> androidx.compose.ui.graphics.Color(0xFFFFB199)
+                    net < 0 -> androidx.compose.ui.graphics.Color(0xFFFF9A9A)
                     else -> W
                 }
                 GlassPill {
@@ -294,22 +310,21 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
     }
 }
 
-/** A see-through capsule over a photo: the picture shows through, a thin light rim keeps its edge. */
+/** A dark translucent capsule over a photo, readable on bright and dark pictures alike. */
 @Composable
 private fun GlassPill(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
     val pill = androidx.compose.foundation.shape.RoundedCornerShape(50)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.height(32.dp)
-            .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.16f), pill)
-            .border(1.dp, androidx.compose.ui.graphics.Color.White.copy(alpha = 0.32f), pill)
+            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.42f), pill)
             .padding(horizontal = 12.dp),
         content = content
     )
 }
 
 /**
- * Member names one at a time: each shows for about 0.6 s, then slides up and
+ * Member names one at a time: each shows for about 0.5 s, then slides up and
  * the next one rises into its place. The box is as wide as the longest name,
  * so nothing around it shifts.
  */
@@ -323,8 +338,8 @@ private fun NameTicker(names: List<String>) {
     }
     var i by remember(names) { mutableIntStateOf(0) }
     if (names.size > 1) androidx.compose.runtime.LaunchedEffect(names) {
-        // 250 ms slide + 600 ms on screen.
-        while (true) { kotlinx.coroutines.delay(850); i = (i + 1) % names.size }
+        // 250 ms slide + 500 ms on screen.
+        while (true) { kotlinx.coroutines.delay(750); i = (i + 1) % names.size }
     }
     androidx.compose.animation.AnimatedContent(
         targetState = i,
@@ -342,13 +357,16 @@ private fun NameTicker(names: List<String>) {
     }
 }
 
+private val HeaderHeight = 96.dp
+
 /**
- * The app title over soft coloured mist. Each wisp drifts on a mix of slow waves
- * whose periods never line up, so the motion never visibly repeats. Time is read
- * only while drawing, so nothing recomposes and it stays smooth.
+ * Soft blood-orange mist behind the app title, from the very top of the screen.
+ * Each wisp drifts on a mix of waves whose periods never line up, so the motion
+ * never visibly repeats. Time and scroll are read only while drawing, so nothing
+ * recomposes and it stays smooth.
  */
 @Composable
-private fun HoliHeader(title: String) {
+private fun Mist(list: androidx.compose.foundation.lazy.LazyListState) {
     val dark = androidx.compose.foundation.isSystemInDarkTheme()
     val time = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     val ctx = LocalContext.current
@@ -361,38 +379,77 @@ private fun HoliHeader(title: String) {
         val start = androidx.compose.runtime.withFrameNanos { it }
         while (true) androidx.compose.runtime.withFrameNanos { time.floatValue = (it - start) / 1_000_000_000f }
     }
-    val colors = listOf(0xFFFF6FB5, 0xFFFFC857, 0xFF5EDC9A, 0xFF62B6F7, 0xFFFF9A5C, 0xFFA07CFF, 0xFF7FE0E0)
+    val colors = listOf(0xFFC15F3C, 0xFFE4502B, 0xFFD97757, 0xFFFF7A45, 0xFFB8301C, 0xFFF29A6E, 0xFFE06A3E)
         .map { androidx.compose.ui.graphics.Color(it) }
     val strength = if (dark) 0.22f else 0.30f
     // Irrational ratios between the waves keep the paths from ever lining up again.
     val phi = 1.618034f; val r2 = 1.4142135f
+    val top = androidx.compose.foundation.layout.WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     Box(
-        Modifier.fillMaxWidth().height(96.dp).drawBehind {
-            val w = size.width; val h = size.height
-            val t = time.floatValue + seed
-            colors.forEachIndexed { i, c ->
-                val a = 1.1f * (1f + i * 0.13f)
-                val x = w * (0.08f + 0.14f * i + 0.13f * kotlin.math.sin(t * a * phi * 0.1f + i * 2.1f) + 0.06f * kotlin.math.sin(t * a * r2 * 0.07f + i))
-                val y = h * (0.5f + 0.22f * kotlin.math.sin(t * a * 0.13f + i * 1.3f) + 0.12f * kotlin.math.cos(t * a * phi * 0.05f + i * 0.7f))
-                val rad = h * (0.75f + 0.18f * kotlin.math.sin(t * a * r2 * 0.1f + i * 3f))
-                // Wisps thin out and thicken again, like fog breathing.
-                val alpha = strength * (0.65f + 0.35f * kotlin.math.sin(t * a * 0.23f + i * 1.9f))
-                val stretch = 2.2f + 0.6f * kotlin.math.sin(t * a * 0.09f + i)
-                val center = androidx.compose.ui.geometry.Offset(x, y)
-                scale(stretch, 1f, pivot = center) {
-                    drawCircle(
-                        androidx.compose.ui.graphics.Brush.radialGradient(
-                            0f to c.copy(alpha = alpha), 0.55f to c.copy(alpha = alpha * 0.35f), 1f to c.copy(alpha = 0f),
-                            center = center, radius = rad
-                        ),
-                        radius = rad, center = center
-                    )
+        Modifier.fillMaxWidth().height(top + HeaderHeight + 12.dp)
+            .graphicsLayer {
+                // Follows the list: slides up as you scroll, gone once the header is off screen.
+                translationY = if (list.firstVisibleItemIndex == 0) -list.firstVisibleItemScrollOffset.toFloat() else -size.height
+            }
+            .drawBehind {
+                val w = size.width; val h = size.height
+                val t = time.floatValue + seed
+                colors.forEachIndexed { i, c ->
+                    val a = 2.0f * (1f + i * 0.13f)
+                    val x = w * (0.08f + 0.14f * i + 0.13f * kotlin.math.sin(t * a * phi * 0.1f + i * 2.1f) + 0.06f * kotlin.math.sin(t * a * r2 * 0.07f + i))
+                    val y = h * (0.5f + 0.24f * kotlin.math.sin(t * a * 0.13f + i * 1.3f) + 0.12f * kotlin.math.cos(t * a * phi * 0.05f + i * 0.7f))
+                    val rad = h * (0.62f + 0.14f * kotlin.math.sin(t * a * r2 * 0.1f + i * 3f))
+                    // Wisps thin out and thicken again, like fog breathing.
+                    val alpha = strength * (0.65f + 0.35f * kotlin.math.sin(t * a * 0.23f + i * 1.9f))
+                    val stretch = 2.2f + 0.6f * kotlin.math.sin(t * a * 0.09f + i)
+                    val center = androidx.compose.ui.geometry.Offset(x, y)
+                    scale(stretch, 1f, pivot = center) {
+                        drawCircle(
+                            androidx.compose.ui.graphics.Brush.radialGradient(
+                                0f to c.copy(alpha = alpha), 0.55f to c.copy(alpha = alpha * 0.35f), 1f to c.copy(alpha = 0f),
+                                center = center, radius = rad
+                            ),
+                            radius = rad, center = center
+                        )
+                    }
                 }
             }
-        }
+    )
+}
+
+/** Bell for group invitations: a dot while any are waiting; tap to answer them. */
+@Composable
+private fun InviteBell(nav: NavViewModel) {
+    val invites by Repo.invites.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
+    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.size(46.dp).pressScale(src).clip(androidx.compose.foundation.shape.CircleShape)
+            .clickable(interactionSource = src, indication = null) {
+                Haptics.tick(ctx)
+                if (invites.isNotEmpty()) nav.showInvites.value = true
+                else android.widget.Toast.makeText(ctx, "No pending invitations", android.widget.Toast.LENGTH_SHORT).show()
+            }
     ) {
-        Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.align(Alignment.CenterStart).padding(start = 20.dp))
+        Icon(Icons.Rounded.Notifications, "Invitations", tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(28.dp))
+        androidx.compose.animation.AnimatedVisibility(invites.isNotEmpty(), Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 10.dp),
+            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) {
+            val red = MaterialTheme.colorScheme.error
+            val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "bell")
+            val k by loop.animateFloat(0f, 1f,
+                androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1800, easing = androidx.compose.animation.core.LinearEasing)),
+                label = "k")
+            Box(Modifier.size(11.dp).drawBehind {
+                // Two rings half a beat apart, each growing out of the dot and fading.
+                for (phase in listOf(0f, 0.5f)) {
+                    val p = (k + phase) % 1f
+                    drawCircle(red.copy(alpha = 0.5f * (1f - p)), radius = size.minDimension / 2 + 9.dp.toPx() * androidx.compose.animation.core.FastOutSlowInEasing.transform(p),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(1.6.dp.toPx()))
+                }
+            }.background(MaterialTheme.colorScheme.background, androidx.compose.foundation.shape.CircleShape).padding(2.dp)
+                .background(red, androidx.compose.foundation.shape.CircleShape))
+        }
     }
 }
 
@@ -471,8 +528,11 @@ private fun ActivityTab(nav: NavViewModel) {
     val me = Auth.uid
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
-            Text("Activity", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 6.dp)) {
+                Text("Activity", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f))
+                InviteBell(nav)
+            }
             HairLine()
             Spacer(Modifier.height(10.dp))
         }

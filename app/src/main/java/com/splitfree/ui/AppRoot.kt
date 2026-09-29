@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.only
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -68,10 +69,11 @@ fun AppRoot(nav: NavViewModel) {
     }
 
     Box(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.safeDrawing)
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Horizontal + androidx.compose.foundation.layout.WindowInsetsSides.Bottom))
     ) {
+        val topInset = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top))
         if (user == null) {
-            SignInScreen()
+            Box(topInset) { SignInScreen() }
             return@Box
         }
         // Each screen in the back stack keeps its own saved state (tab, scroll position,
@@ -92,7 +94,7 @@ fun AppRoot(nav: NavViewModel) {
                     .using(androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() })
             },
             label = "screen"
-        ) { (index, s) -> holder.SaveableStateProvider("$index:$s") { when (s) {
+        ) { (index, s) -> holder.SaveableStateProvider("$index:$s") { Box(if (s == Screen.Home) Modifier.fillMaxSize() else topInset) { when (s) {
             Screen.Home -> HomeScreen(nav)
             is Screen.Group -> GroupScreen(nav, s.id, s.tab)
             is Screen.GroupSettings -> GroupSettingsScreen(nav, s.id)
@@ -103,7 +105,7 @@ fun AppRoot(nav: NavViewModel) {
             Screen.Backup -> BackupScreen(nav)
             is Screen.Member -> MemberScreen(nav, s.groupId, s.uid)
             Screen.EditProfile -> EditProfileScreen(nav)
-        } } }
+        } } } }
 
         // Opened from an invite notification: answer it right here.
         val showInvites by nav.showInvites.collectAsStateWithLifecycle()

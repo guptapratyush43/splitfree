@@ -247,39 +247,52 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
     }
 }
 
-/** Round see-through button over the banner photo: the picture shows through, a light rim keeps its edge. */
+/** Round dark translucent button over the banner photo (a plain surface button when there is no photo). */
 @Composable
 private fun GlassCircle(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onPhoto: Boolean, onClick: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val fill = if (onPhoto) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.55f)
-    val rim = if (onPhoto) Color.White.copy(alpha = 0.38f) else MaterialTheme.colorScheme.outline
+    val fill = if (onPhoto) Color.Black.copy(alpha = 0.42f) else MaterialTheme.colorScheme.surface
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier.size(46.dp).pressScale(src).clip(androidx.compose.foundation.shape.CircleShape)
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(fill.copy(alpha = fill.alpha * 1.5f), fill)))
-            .border(1.dp, rim, androidx.compose.foundation.shape.CircleShape)
+            .background(fill)
             .clickable(interactionSource = src, indication = null) { Haptics.tick(ctx); onClick() }
     ) { Icon(icon, label, tint = if (onPhoto) Color.White else MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp)) }
 }
 
-/** A small capsule that gently breathes: "Everyone is settled up". */
+/**
+ * "Everyone is settled up": the capsule itself stays still while soft rings
+ * ripple out of it and fade, like a slow breath.
+ */
 @Composable
 private fun BreathingCapsule(text: String) {
     val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "breathe")
     val k by loop.animateFloat(0f, 1f,
-        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-            androidx.compose.animation.core.RepeatMode.Reverse), label = "k")
+        androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(2400, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "k")
     val green = moneyColor(1)
+    val fill = MaterialTheme.colorScheme.surface
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(vertical = 10.dp)
-            .graphicsLayer { val sc = 1f + 0.04f * k; scaleX = sc; scaleY = sc; transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f) }
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 18.dp)
             .drawBehind {
-                // A soft glow that swells and fades with each breath.
-                drawRoundRect(green.copy(alpha = 0.10f + 0.10f * k), cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
+                // Two rings, half a breath apart, each growing out and fading away.
+                for (phase in listOf(0f, 0.5f)) {
+                    val p = (k + phase) % 1f
+                    val grow = 16.dp.toPx() * androidx.compose.animation.core.FastOutSlowInEasing.transform(p)
+                    drawRoundRect(
+                        green.copy(alpha = 0.45f * (1f - p)),
+                        topLeft = androidx.compose.ui.geometry.Offset(-grow, -grow),
+                        size = androidx.compose.ui.geometry.Size(size.width + 2 * grow, size.height + 2 * grow),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2 + grow),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                    )
+                }
+                drawRoundRect(fill, cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
+                drawRoundRect(green.copy(alpha = 0.14f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2))
             }
-            .border(1.dp, green.copy(alpha = 0.35f + 0.25f * k), androidx.compose.foundation.shape.RoundedCornerShape(50))
+            .border(1.dp, green.copy(alpha = 0.55f), androidx.compose.foundation.shape.RoundedCornerShape(50))
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         Icon(Icons.Rounded.CheckCircle, null, tint = green, modifier = Modifier.size(18.dp))
@@ -360,6 +373,12 @@ private fun MemberCard(nav: NavViewModel, group: Group, uid: String, n: Long, me
     Spacer(Modifier.height(10.dp))
 }
 
+/** Every expense and payment [uid] took part in, newest first, with the effect it had on them. */
+private fun settledFor(uid: String, expenses: List<Expense>): List<Pair<Expense, Long>> =
+    expenses.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.createdAt })
+        .map { it to ((it.paid[uid] ?: 0) - (it.shares[uid] ?: 0)) }
+        .filter { it.second != 0L }
+
 /**
  * The expenses behind [uid]'s current balance: everything since the last time
  * their balance was zero, newest first, with the effect each one had on them.
@@ -390,7 +409,9 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     val n = nets[uid] ?: 0
     var remind by remember { mutableStateOf<Debt?>(null) }
     var settle by remember { mutableStateOf<Debt?>(null) }
-    val pending = if (n == 0L) emptyList() else pendingFor(uid, all[gid].orEmpty().filter { !it.deleted })
+    val live = all[gid].orEmpty().filter { !it.deleted }
+    // Settled: everything they took part in. Otherwise: what is behind the current balance.
+    val pending = if (n == 0L) settledFor(uid, live) else pendingFor(uid, live)
     Column(Modifier.fillMaxSize()) {
         TopBar(group.name(uid, me).let { if (it == "You") "Your balance" else it }, onBack = { nav.pop() })
         LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp)) {
@@ -434,7 +455,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                 }
                 Spacer(Modifier.height(10.dp))
             }
-            if (pending.isNotEmpty()) item { Spacer(Modifier.height(8.dp)); SectionLabel("Pending expenses") }
+            if (pending.isNotEmpty()) item { Spacer(Modifier.height(8.dp)); SectionLabel(if (n == 0L) "All settled up expenses" else "Pending expenses") }
             pending.groupBy { Fmt.day(it.first.date) }.forEach { (day, list) ->
                 item(key = "d$day") {
                     Text(day, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
