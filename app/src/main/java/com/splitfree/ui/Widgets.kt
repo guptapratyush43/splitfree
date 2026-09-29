@@ -146,6 +146,26 @@ fun SecondaryButton(text: String, icon: ImageVector?, onClick: () -> Unit, modif
     }
 }
 
+/**
+ * The quietest button, for "not now" choices: same shape and height as the
+ * others, a soft neutral fill, no outline, muted text.
+ */
+@Composable
+fun TertiaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val scheme = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(14.dp)
+    val src = remember { MutableInteractionSource() }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = modifier.pressScale(src).clip(shape).background(scheme.onSurface.copy(alpha = 0.06f), shape)
+            .clickable(interactionSource = src, indication = null, enabled = enabled) { Haptics.tick(ctx); onClick() }.padding(horizontal = 18.dp, vertical = 16.dp)
+    ) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.5f))
+    }
+}
+
 /** Small rounded chip, filled when active. */
 @Composable
 fun Chip(text: String, active: Boolean, onClick: () -> Unit) {

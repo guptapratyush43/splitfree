@@ -211,14 +211,21 @@ fun SignInScreen() {
             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(36.dp))
-        PrimaryButton(if (busy) "Signing in…" else "Continue with Google", null, {
-            busy = true; error = null
-            scope.launch {
-                try { Auth.signIn(context as Activity) } catch (e: Exception) {
-                    error = if (e is androidx.credentials.exceptions.GetCredentialCancellationException) null else (e.message ?: "Sign-in failed")
-                } finally { busy = false }
-            }
-        }, Modifier.fillMaxWidth(), enabled = !busy)
+        // While signing in, a spinner sits beside the label inside the button.
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            PrimaryButton(if (busy) "Signing in" else "Continue with Google", null, {
+                busy = true; error = null
+                scope.launch {
+                    try { Auth.signIn(context as Activity) } catch (e: Exception) {
+                        error = if (e is androidx.credentials.exceptions.GetCredentialCancellationException) null else (e.message ?: "Sign-in failed")
+                    } finally { busy = false }
+                }
+            }, Modifier.fillMaxWidth(), enabled = !busy)
+            if (busy) androidx.compose.material3.CircularProgressIndicator(
+                Modifier.align(Alignment.CenterStart).padding(start = 22.dp).size(20.dp),
+                strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary
+            )
+        }
         if (error != null) {
             Spacer(Modifier.height(14.dp))
             Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)

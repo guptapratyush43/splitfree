@@ -563,8 +563,15 @@ fun InviteCard(invite: Invite, onIgnore: (() -> Unit)? = null, onJoined: (String
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 PrimaryButton(if (busy) " " else "Dismiss", null, {
                     busy = true
-                    scope.launch {
-                        try { Repo.dismissInvite(invite) } catch (e: Exception) { toast(context, Api.friendly(e)) } finally { busy = false }
+                    // App-wide scope: the card vanishes as soon as the server clears the invite,
+                    // and that must not cancel the work (or show the cancellation as an error).
+                    com.splitfree.AppScope.launch {
+                        try {
+                            Repo.dismissInvite(invite)
+                            toast(context, "Invite dismissed")
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) { toast(context, Api.friendly(e)) } finally { busy = false }
                     }
                 }, Modifier.fillMaxWidth(), enabled = !busy)
                 if (busy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.onPrimary)
@@ -579,7 +586,8 @@ fun InviteCard(invite: Invite, onIgnore: (() -> Unit)? = null, onJoined: (String
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             fun answer(accept: Boolean) {
                 busy = true; joining = accept; failed = null
-                scope.launch {
+                // App-wide scope, so the card leaving the list mid-answer can't cut this short.
+                com.splitfree.AppScope.launch {
                     try {
                         // Up to three tries, one after another (no answer in 15 s counts as a failed try).
                         // "Already answered" after a try that timed out means that try went through.
@@ -620,11 +628,9 @@ fun InviteCard(invite: Invite, onIgnore: (() -> Unit)? = null, onJoined: (String
         }
         // In the pop-up: close it and decide later (the invite waits in Activity).
         if (onIgnore != null) {
-            Spacer(Modifier.height(6.dp))
-            Text("Ignore for now", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
-                    .clickable(enabled = !busy) { Haptics.tick(context); onIgnore() }.padding(vertical = 10.dp))
+            // The quietest of the three, spanning both buttons above (and the gap between them).
+            Spacer(Modifier.height(10.dp))
+            TertiaryButton("Ignore for now", onIgnore, Modifier.fillMaxWidth(), enabled = !busy)
         }
     }
 }
