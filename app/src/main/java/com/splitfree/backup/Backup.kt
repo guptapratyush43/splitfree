@@ -173,11 +173,14 @@ object Backup {
         pending?.cancel()
         if (::app.isInitialized) WorkManager.getInstance(app).cancelUniqueWork("backup-soon")
         setEnabled(false)
+        // At most 15 seconds: a slow or unreachable Drive must not hold up deleting the account.
         runCatching {
-            withDrive("Deleting backup…") { drive ->
-                withContext(Dispatchers.IO) {
-                    var left = 5
-                    while (left-- > 0) { val f = drive.find(FILE) ?: break; drive.delete(f.id) }
+            kotlinx.coroutines.withTimeoutOrNull(15_000) {
+                withDrive("Deleting backup…") { drive ->
+                    withContext(Dispatchers.IO) {
+                        var left = 5
+                        while (left-- > 0) { val f = drive.find(FILE) ?: break; drive.delete(f.id) }
+                    }
                 }
             }
         }

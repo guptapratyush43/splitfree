@@ -257,6 +257,9 @@ object Repo {
         Api.post("/api/group/remove", JSONObject().put("groupId", g.id).put("uid", uid))
     }
 
+    /** True while the account is being deleted; the app shows a blocking spinner. */
+    val deleting = MutableStateFlow(false)
+
     suspend fun deleteAccount() { Api.post("/api/account/delete", JSONObject()) }
 
     // ---- expenses ------------------------------------------------------------
@@ -267,18 +270,26 @@ object Repo {
         group(g.id).collection("expenses").document(e.id).set(e.toMap())
         val me = Auth.name
         val what = if (e.settlement) settleText(g, e) else "“${e.title}” (${Money.format(e.amount)})"
-        val text = if (e.settlement) "$me marked as settled: $what" else if (isNew) "$me added $what" else "$me edited $what"
+        // Payments: "Asha marked ₹500.00 from Ravi as settled" when the receiver confirms it, otherwise who paid whom.
+        val fromName = e.paid.keys.firstOrNull()?.let { g.info[it]?.name } ?: "Someone"
+        val settledText = when {
+            !e.settlement -> ""
+            !isNew -> "$me updated a payment: $what"
+            Auth.uid in e.shares.keys -> "$me marked ${Money.format(e.amount)} from $fromName as settled"
+            else -> "$me recorded a payment: $what"
+        }
+        val text = if (e.settlement) settledText else if (isNew) "$me added $what" else "$me edited $what"
         log(g.id, text, e.id, e.involved)
         // Added for someone else: say who paid, then who entered it on their behalf.
         val payers = e.paid.keys.map { g.info[it]?.name ?: "Someone" }
         val payerText = if (payers.size <= 2) payers.joinToString(" and ") else "${payers.size} people"
         val selfPaid = Auth.uid in e.paid.keys
         val body = when {
-            e.settlement -> "$me marked as settled: $what"
+            e.settlement -> "$settledText."
             selfPaid -> "$me ${if (isNew) "added" else "edited"} $what. You're included."
             else -> "$payerText paid $what. You're included. ${if (isNew) "Added" else "Edited"} by $me on behalf of $payerText."
         }
-        notify(g, e.involved, if (e.settlement) "Payment marked as settled" else if (isNew) "New expense in ${g.name}" else "Expense edited in ${g.name}",
+        notify(g, e.involved, if (e.settlement) "Payment settled in ${g.name}" else if (isNew) "New expense in ${g.name}" else "Expense edited in ${g.name}",
             body, e.id,
             screen = if (e.settlement) "member" else "expense")
     }
@@ -295,14 +306,14 @@ object Repo {
             .update(mapOf("deleted" to true, "deletedAt" to System.currentTimeMillis(), "repeat" to Repeat.NONE.name))
         val label = if (e.settlement) "a payment of ${Money.format(e.amount)}" else "“${e.title}” (${Money.format(e.amount)})"
         log(g.id, "${Auth.name} deleted $label", e.id, e.involved)
-        notify(g, e.involved, "Expense deleted in ${g.name}", "${Auth.name} deleted $label", e.id, screen = "group")
+        notify(g, e.involved, if (e.settlement) "Payment deleted in ${g.name}" else "Expense deleted in ${g.name}", "${Auth.name} deleted $label.", e.id, screen = "group")
     }
 
     fun restoreExpense(g: Group, e: Expense) {
         group(g.id).collection("expenses").document(e.id).update("deleted", false)
         val label = if (e.settlement) "a payment of ${Money.format(e.amount)}" else "“${e.title}” (${Money.format(e.amount)})"
         log(g.id, "${Auth.name} restored $label", e.id, e.involved)
-        notify(g, e.involved, "Expense restored in ${g.name}", "${Auth.name} restored $label", e.id)
+        notify(g, e.involved, if (e.settlement) "Payment restored in ${g.name}" else "Expense restored in ${g.name}", "${Auth.name} restored $label.", e.id)
     }
 
     /** Records [from] paying [to]. [settles]: the expenses this payment clears, when picked one by one. */
@@ -343,17 +354,17 @@ object Repo {
         )
         val title = if (e.settlement) "a payment" else "“${e.title}”"
         log(g.id, "${Auth.name} commented on $title", e.id, e.involved)
-        notify(g, e.involved, "New comment in ${g.name}", "${Auth.name} on $title: $text", e.id, screen = "comments")
+        notify(g, e.involved, "New comment in ${g.name}", "${Auth.name} commented on $title: $text", e.id, screen = "comments")
     }
 
     /** The one who owes tells the one they paid: "I've paid, please mark it as settled." Opens the payer's page for them. */
     fun askToSettle(g: Group, lender: String, amount: Long) {
-        notify(g, listOf(lender), "Mark as settled?", "${Auth.name} says they've paid you ${Money.format(amount)} in ${g.name}. Tap to mark it as settled.",
+        notify(g, listOf(lender), "Payment to confirm", "${Auth.name} says they paid you ${Money.format(amount)} in ${g.name}. Tap to mark it as settled.",
             null, force = true, screen = "member:${Auth.uid}")
     }
 
     fun remind(g: Group, uid: String, amount: Long) {
-        notify(g, listOf(uid), "Payment reminder", "${Auth.name} reminded you: you owe them ${Money.format(amount)} in ${g.name}", null, force = true, screen = "member")
+        notify(g, listOf(uid), "Payment reminder", "${Auth.name} sent a reminder: you owe ${Money.format(amount)} in ${g.name}.", null, force = true, screen = "member")
     }
 
     // ---- plumbing ------------------------------------------------------------

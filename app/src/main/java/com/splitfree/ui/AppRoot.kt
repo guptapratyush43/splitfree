@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.only
 import androidx.compose.ui.platform.LocalContext
@@ -45,7 +46,11 @@ import com.splitfree.data.Repo
 import kotlinx.coroutines.launch
 
 /** Android's own toast, which carries the app icon. */
-fun toast(context: android.content.Context, msg: String) = Toast.makeText(context.applicationContext, msg, Toast.LENGTH_SHORT).show()
+fun toast(context: android.content.Context, msg: String) {
+        // Internal "coroutine was cancelled" texts are never worth showing.
+        if (msg.contains("coroutine", ignoreCase = true) || msg.contains("was cancelled", ignoreCase = true)) return
+        Toast.makeText(context.applicationContext, msg, Toast.LENGTH_SHORT).show()
+    }
 
 @Composable
 fun AppRoot(nav: NavViewModel) {
@@ -74,6 +79,17 @@ fun AppRoot(nav: NavViewModel) {
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Horizontal + androidx.compose.foundation.layout.WindowInsetsSides.Bottom))
     ) {
         val topInset = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top))
+        val deleting by Repo.deleting.collectAsStateWithLifecycle()
+        if (deleting) androidx.compose.ui.window.Dialog(onDismissRequest = {},
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
+            WarmCard(padding = 22.dp, background = MaterialTheme.colorScheme.background) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(14.dp))
+                    Text("Deleting your account…", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        }
         if (user == null) {
             Box(topInset) { SignInScreen() }
             return@Box
@@ -213,7 +229,7 @@ fun SignInScreen() {
         Spacer(Modifier.height(36.dp))
         // While signing in, a spinner sits beside the label inside the button.
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            PrimaryButton(if (busy) "Signing in" else "Continue with Google", null, {
+            PrimaryButton(if (busy) " " else "Continue with Google", null, {
                 busy = true; error = null
                 scope.launch {
                     try { Auth.signIn(context as Activity) } catch (e: Exception) {
@@ -221,10 +237,12 @@ fun SignInScreen() {
                     } finally { busy = false }
                 }
             }, Modifier.fillMaxWidth(), enabled = !busy)
-            if (busy) androidx.compose.material3.CircularProgressIndicator(
-                Modifier.align(Alignment.CenterStart).padding(start = 22.dp).size(20.dp),
-                strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary
-            )
+            // "Signing in" with the spinner right after it, centred together in the button.
+            if (busy) Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Signing in", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(10.dp))
+                androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.5.dp, color = MaterialTheme.colorScheme.primary)
+            }
         }
         if (error != null) {
             Spacer(Modifier.height(14.dp))

@@ -44,6 +44,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.outlined.SystemUpdateAlt
+import androidx.compose.material.icons.outlined.Battery0Bar
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.BatteryAlert
 import androidx.compose.material.icons.outlined.Notifications
@@ -100,11 +102,11 @@ fun AccountTab(nav: NavViewModel) {
             "Battery & Autostart",
             if (xiaomiLike) "Turn on Autostart and set Battery saver to “No restrictions” so notifications arrive on time"
             else "Set battery to “Unrestricted” so notifications arrive on time",
-            Icons.Outlined.BatteryAlert, onClick = {
+            Icons.Outlined.Battery0Bar, onClick = {
                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
             })
         var checking by remember { mutableStateOf(false) }
-        SettingRow("Check for updates", if (checking) "Checking…" else "You're on v${BuildConfig.VERSION_NAME}", Icons.Outlined.SystemUpdate, onClick = {
+        SettingRow("Check for updates", if (checking) "Checking…" else "You're on v${BuildConfig.VERSION_NAME}", Icons.Outlined.SystemUpdateAlt, onClick = {
             if (!checking) {
                 checking = true
                 scope.launch {
@@ -129,7 +131,7 @@ fun AccountTab(nav: NavViewModel) {
 
     when (confirm) {
         "logout" -> ConfirmDialog("Log out?", "Your groups stay safe in the cloud. Sign in again any time to see them.", "Log out",
-            onConfirm = { scope.launch { Auth.signOut(context) } }, onDismiss = { confirm = null }, danger = false)
+            onConfirm = { com.splitfree.AppScope.launch { Auth.signOut(context) } }, onDismiss = { confirm = null }, danger = false)
         "dues" -> DuesDialog("You have pending dues. Clear them, then you can delete your account.") { confirm = null }
         "type" -> {
             var typed by remember { mutableStateOf("") }
@@ -164,13 +166,16 @@ fun AccountTab(nav: NavViewModel) {
                     PrimaryButton("Stay", null, { confirm = null }, Modifier.weight(1f))
                     SecondaryButton(if (left > 0) "Delete ($left)" else "Delete", null, {
                         confirm = null
-                        scope.launch {
+                        Repo.deleting.value = true
+                        com.splitfree.AppScope.launch {
                             try {
                                 Backup.wipeForAccountDeletion()
                                 Repo.deleteAccount()
                                 Auth.signOut(context)
                                 toast(context, "Account deleted")
-                            } catch (e: Exception) { toast(context, Api.friendly(e)) }
+                            } catch (e: Exception) {
+                                toast(context, if (e is kotlinx.coroutines.CancellationException) "Couldn't delete your account. Please try again." else Api.friendly(e))
+                            } finally { Repo.deleting.value = false }
                         }
                     }, Modifier.weight(1f), enabled = left == 0, danger = true)
                 }
@@ -195,7 +200,7 @@ fun BackupScreen(nav: NavViewModel) {
     val connect = rememberDriveConnect { Backup.setEnabled(true); Backup.onDataChanged() }
 
     fun run(done: (Any?) -> String, block: suspend () -> Any?) {
-        scope.launch { try { toast(context, done(block())) } catch (e: Exception) { toast(context, e.message ?: "Something went wrong") } }
+        scope.launch { try { toast(context, done(block())) } catch (e: Exception) { toast(context, Api.friendly(e)) } }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -277,6 +282,8 @@ fun rememberDriveConnect(onGranted: () -> Unit): (Activity, (() -> Unit)?) -> Un
                     after = then
                     launcher.launch(IntentSenderRequest.Builder(r.pendingIntent!!.intentSender).build())
                 } else { onGranted(); then?.invoke() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) { toast(context, e.message ?: "Couldn't reach Google") }
         }
     }

@@ -45,9 +45,9 @@ object Auth {
     }
 
     suspend fun signOut(context: Context) {
-        Repo.stop()
-        fa.signOut()
-        runCatching { CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest()) }
+        runCatching { Repo.stop() }
+        runCatching { fa.signOut() }
+        runCatching { CredentialManager.create(context.applicationContext).clearCredentialState(ClearCredentialStateRequest()) }
     }
 }
 
@@ -78,6 +78,8 @@ object Api {
     }
 
     fun friendly(e: Throwable): String = when (e) {
+        // A screen closing mid-request cancels its work; that is not an error worth wording.
+        is kotlinx.coroutines.CancellationException -> "That didn't finish. Please try again."
         is ApiException -> e.message ?: "Something went wrong"
         is IOException -> "No internet connection. Try again when you're online."
         else -> e.message ?: "Something went wrong"

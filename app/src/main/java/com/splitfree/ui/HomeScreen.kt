@@ -429,8 +429,8 @@ private fun NameTicker(names: List<String>) {
     }
     var i by remember(names) { mutableIntStateOf(0) }
     if (names.size > 1) androidx.compose.runtime.LaunchedEffect(names) {
-        // 250 ms slide + 1 s on screen.
-        while (true) { kotlinx.coroutines.delay(1250); i = (i + 1) % names.size }
+        // 250 ms slide + 1.8 s on screen.
+        while (true) { kotlinx.coroutines.delay(2050); i = (i + 1) % names.size }
     }
     androidx.compose.animation.AnimatedContent(
         targetState = i,
@@ -486,7 +486,7 @@ private fun Mist(list: androidx.compose.foundation.lazy.LazyListState) {
                 val w = size.width; val h = size.height
                 val t = time.floatValue + seed
                 colors.forEachIndexed { i, c ->
-                    val a = 4.2f * (1f + i * 0.13f)
+                    val a = 6.4f * (1f + i * 0.13f)
                     val x = w * (0.08f + 0.14f * i + 0.13f * kotlin.math.sin(t * a * phi * 0.1f + i * 2.1f) + 0.06f * kotlin.math.sin(t * a * r2 * 0.07f + i))
                     val y = h * (0.5f + 0.24f * kotlin.math.sin(t * a * 0.13f + i * 1.3f) + 0.12f * kotlin.math.cos(t * a * phi * 0.05f + i * 0.7f))
                     val rad = h * (0.62f + 0.14f * kotlin.math.sin(t * a * r2 * 0.1f + i * 3f))

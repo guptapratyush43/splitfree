@@ -171,12 +171,51 @@ object Balances {
             val signed = if (d.from < d.to) d.amount else -d.amount
             pair[a to b] = (pair[a to b] ?: 0) + signed
         }
-        return pair.mapNotNull { (k, v) ->
-            when {
-                v > 0 -> Debt(k.first, k.second, v)
-                v < 0 -> Debt(k.second, k.first, -v)
-                else -> null
+        // Directed "from owes to" amounts.
+        val owes = HashMap<Pair<String, String>, Long>()
+        pair.forEach { (k, v) ->
+            if (v > 0) owes[k.first to k.second] = v else if (v < 0) owes[k.second to k.first] = -v
+        }
+        cancelCycles(owes)
+        return owes.filterValues { it > 0 }.map { (k, v) -> Debt(k.first, k.second, v) }
+            .sortedWith(compareByDescending<Debt> { it.amount }.thenBy { it.from }.thenBy { it.to })
+    }
+
+    /**
+     * Removes money going round in a circle (A owes B, B owes C, C owes A): the
+     * smallest amount on the loop is taken off every step of it. Nobody's total
+     * changes, and a group where everyone is square shows no debts at all.
+     */
+    private fun cancelCycles(owes: MutableMap<Pair<String, String>, Long>) {
+        while (true) {
+            val next = owes.filterValues { it > 0 }.keys.groupBy({ it.first }, { it.second }).mapValues { it.value.sorted() }
+            val loop = findCycle(next) ?: return
+            val least = loop.minOf { owes.getValue(it) }
+            loop.forEach { owes[it] = owes.getValue(it) - least }
+        }
+    }
+
+    /** One loop in the graph as its list of steps, or null when there is none. */
+    private fun findCycle(next: Map<String, List<String>>): List<Pair<String, String>>? {
+        val done = HashSet<String>()
+        for (start in next.keys.sorted()) {
+            if (start in done) continue
+            val path = ArrayList<String>()
+            val onPath = HashSet<String>()
+            fun visit(node: String): List<Pair<String, String>>? {
+                path += node; onPath += node
+                for (to in next[node].orEmpty()) {
+                    if (to in onPath) {
+                        val loop = path.subList(path.indexOf(to), path.size) + to
+                        return loop.zipWithNext()
+                    }
+                    if (to !in done) visit(to)?.let { return it }
+                }
+                path.removeAt(path.size - 1); onPath -= node; done += node
+                return null
             }
-        }.sortedByDescending { it.amount }
+            visit(start)?.let { return it }
+        }
+        return null
     }
 }

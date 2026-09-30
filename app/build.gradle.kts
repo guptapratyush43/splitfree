@@ -15,8 +15,8 @@ android {
         applicationId = "com.splitfree"
         minSdk = 26
         targetSdk = 34
-        versionCode = 26
-        versionName = "3.5"
+        versionCode = 27
+        versionName = "3.6"
         // Cloudflare Worker that sends pushes and does membership changes.
         buildConfigField("String", "API_URL", "\"https://split-free.split-free-worker.workers.dev\"")
     }
@@ -97,6 +97,7 @@ dependencies {
     implementation("androidx.exifinterface:exifinterface:1.3.7")
 
     // Invite QR code.
+    testImplementation("junit:junit:4.13.2")
     implementation("com.google.zxing:core:3.5.3")
     // Camera for "Scan QR to join"
     implementation("androidx.camera:camera-camera2:1.3.4")

@@ -419,7 +419,8 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     val pendingIds = if (n == 0L) emptySet() else pendingFor(uid, live).map { it.first.id }.toSet()
     val pending = settledFor(uid, live)
     // On someone else's page, the expenses where they still owe you can be picked and marked as settled.
-    val owedToMe = if (uid == me || n == 0L) emptyMap() else pending.filter { it.first.id in pendingIds }.mapNotNull { (e, _) ->
+    val owedNow = debts.filter { it.from == uid && it.to == me }.sumOf { it.amount }
+    val owedToMe = if (uid == me || n == 0L || owedNow == 0L) emptyMap() else pending.filter { it.first.id in pendingIds }.mapNotNull { (e, _) ->
         if (e.settlement) null
         else Balances.settle(Balances.nets(listOf(e.flows))).filter { it.from == uid && it.to == me }.sumOf { it.amount }
             .takeIf { it > 0 }?.let { e.id to it }
@@ -434,7 +435,6 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     androidx.activity.compose.BackHandler(selecting) { picked.clear(); selecting = false }
     var settlePicked by remember { mutableStateOf(false) }
     val pickedTotal = picked.sumOf { owedToMe[it] ?: 0L }
-    val owedNow = debts.filter { it.from == uid && it.to == me }.sumOf { it.amount }
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         TopBar(group.name(uid, me).let { if (it == "You") "Your balance" else it }, onBack = { nav.pop() })
