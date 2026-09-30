@@ -10,6 +10,8 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -127,11 +129,13 @@ object UpdateManager {
     /** "Ignore": this version is never offered again; the next one will be. */
     fun ignore(release: Release) {
         prefs.edit().putString("ignored", release.version).apply()
+        job?.cancel(); job = null
         close()
     }
 
     fun close() {
         _offer.value = null
+        shown = false
         if (_download.value !is Download.Running) _download.value = Download.Idle
     }
 
@@ -176,57 +180,120 @@ object UpdateManager {
         .replace(Regex("\n{3,}"), "\n\n")
         .trim()
 
-    /** Downloads the APK with progress, then checks it really is our app, signed by us. */
+    // A download can start quietly while the pop-up is open, so Update is instant.
+    private var job: kotlinx.coroutines.Deferred<File>? = null
+    private var jobVersion: String? = null
+    @Volatile private var shown = false
+    @Volatile private var progress: Float? = 0f
+    // GitHub's link redirects to its file server; resolving it early saves a round trip later.
+    @Volatile private var direct: Pair<String, String>? = null // original url -> signed file url
+
+    /**
+     * Called while the pop-up is on screen. On Wi-Fi the APK starts downloading quietly;
+     * on mobile data only the connection is warmed up, so nothing is spent without a tap.
+     */
+    fun prefetch(release: Release) {
+        if (job != null && jobVersion == release.version) return
+        val cm = app.getSystemService(android.net.ConnectivityManager::class.java)
+        if (cm != null && cm.activeNetwork != null && !cm.isActiveNetworkMetered) { begin(release); return }
+        com.splitfree.AppScope.launch(Dispatchers.IO) { runCatching { resolve(release.apkUrl) } }
+    }
+
+    /** Follows GitHub's redirect once and remembers where the file really is (the connection stays warm). */
+    private fun resolve(url: String): String {
+        direct?.let { if (it.first == url) return it.second }
+        val c = (URL(url).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            requestMethod = "HEAD"
+            connectTimeout = 15_000; readTimeout = 15_000
+            setRequestProperty("User-Agent", "SplitFree-Android")
+        }
+        val to = try { if (c.responseCode in 300..399) c.getHeaderField("Location") else null } finally { c.disconnect() }
+        val target = to ?: url
+        // Touch the file server too, so its DNS and TLS are ready when the download begins.
+        if (to != null) runCatching {
+            val h = (URL(target).openConnection() as HttpURLConnection).apply {
+                requestMethod = "HEAD"; connectTimeout = 15_000; readTimeout = 15_000
+                setRequestProperty("User-Agent", "SplitFree-Android")
+            }
+            try { h.responseCode } finally { h.disconnect() }
+        }
+        direct = url to target
+        return target
+    }
+
+    private fun begin(release: Release): kotlinx.coroutines.Deferred<File> {
+        progress = 0f
+        jobVersion = release.version
+        return com.splitfree.AppScope.async(Dispatchers.IO) { fetchApk(release) }.also { job = it }
+    }
+
+    private fun report(p: Float?) {
+        progress = p
+        if (shown) _download.value = Download.Running(p)
+    }
+
+    /** "Update": shows the download at once, joining one that already started. */
     suspend fun startDownload(release: Release) {
         if (_download.value is Download.Running) return
-        _download.value = Download.Running(0f)
+        shown = true
+        val earlier = job?.takeIf { jobVersion == release.version && !(it.isCompleted && it.getCompletionExceptionOrNull() != null) }
+        _download.value = Download.Running(if (earlier?.isActive == true) progress else 0f)
         try {
-            val file = withContext(Dispatchers.IO) {
-                val dir = File(app.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
-                val out = File(dir, "Split-Free-${release.version}.apk")
-                val c = (URL(release.apkUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 20_000
-                    readTimeout = 60_000
-                    setRequestProperty("User-Agent", "SplitFree-Android")
-            // Always the live answer, never a cached one that could point at an older release.
-            useCaches = false
-            setRequestProperty("Cache-Control", "no-cache")
-                }
-                try {
-                    if (c.responseCode != 200) throw IOException("Download failed (${c.responseCode}).")
-                    val total = c.contentLengthLong.takeIf { it > 0 } ?: release.apkSize
-                    val digest = MessageDigest.getInstance("SHA-256")
-                    c.inputStream.use { input ->
-                        out.outputStream().use { output ->
-                            val buf = ByteArray(64 * 1024)
-                            var done = 0L
-                            while (true) {
-                                val n = input.read(buf)
-                                if (n < 0) break
-                                output.write(buf, 0, n)
-                                digest.update(buf, 0, n)
-                                done += n
-                                _download.value = Download.Running(if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null)
-                            }
-                        }
-                    }
-                    val hex = digest.digest().joinToString("") { "%02x".format(it) }
-                    if (release.sha256 != null && !hex.equals(release.sha256, ignoreCase = true)) {
-                        out.delete(); throw IOException("The download got damaged. Try again.")
-                    }
-                } finally {
-                    c.disconnect()
-                }
-                if (!signedLikeUs(out)) { out.delete(); throw IOException("That file isn't signed like this app, so it wasn't installed.") }
-                out
-            }
+            val file = (earlier ?: begin(release)).await()
             _download.value = Download.Ready(file)
         } catch (e: Exception) {
+            job = null
             _download.value = Download.Failed(
                 if (e is java.net.UnknownHostException || e is java.net.SocketTimeoutException) "No internet right now. Try again in a bit."
                 else e.message ?: "Download failed."
             )
         }
+    }
+
+    /** Downloads the APK with progress, then checks it really is our app, signed by us. */
+    private fun fetchApk(release: Release): File {
+        val dir = File(app.cacheDir, "updates").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+        val out = File(dir, "Split-Free-${release.version}.apk")
+        val url = runCatching { resolve(release.apkUrl) }.getOrDefault(release.apkUrl)
+        var c = open(url)
+        // A signed link can expire; then go through GitHub again.
+        if (c.responseCode != 200 && url != release.apkUrl) { c.disconnect(); direct = null; c = open(release.apkUrl) }
+        try {
+            if (c.responseCode != 200) throw IOException("Download failed (${c.responseCode}).")
+            val total = c.contentLengthLong.takeIf { it > 0 } ?: release.apkSize
+            val digest = MessageDigest.getInstance("SHA-256")
+            c.inputStream.use { input ->
+                out.outputStream().use { output ->
+                    val buf = ByteArray(64 * 1024)
+                    var done = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        output.write(buf, 0, n)
+                        digest.update(buf, 0, n)
+                        done += n
+                        report(if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null)
+                    }
+                }
+            }
+            val hex = digest.digest().joinToString("") { "%02x".format(it) }
+            if (release.sha256 != null && !hex.equals(release.sha256, ignoreCase = true)) {
+                out.delete(); throw IOException("The download got damaged. Try again.")
+            }
+        } finally {
+            c.disconnect()
+        }
+        if (!signedLikeUs(out)) { out.delete(); throw IOException("That file isn't signed like this app, so it wasn't installed.") }
+        return out
+    }
+
+    private fun open(url: String) = (URL(url).openConnection() as HttpURLConnection).apply {
+        connectTimeout = 20_000
+        readTimeout = 60_000
+        setRequestProperty("User-Agent", "SplitFree-Android")
+        useCaches = false
+        setRequestProperty("Cache-Control", "no-cache")
     }
 
     /**

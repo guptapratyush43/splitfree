@@ -245,7 +245,7 @@ private fun ExpensesPage(nav: NavViewModel, group: Group, expenses: List<Expense
     // Date: month, then each day under it. Recently added: newest entry first. Name: same titles together (Hostel, Hostel, Food…).
     val byDate = sort == ExpenseSort.DATE
     val sections: List<Pair<String, List<Pair<String?, List<Expense>>>>> = when (sort) {
-        ExpenseSort.DATE -> shown.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.createdAt })
+        ExpenseSort.DATE -> shown.sortedWith(compareByDescending<Expense> { it.moment }.thenByDescending { it.createdAt })
             .groupBy { monthFmt.format(zoned(it.date)) }.toList()
             .map { (m, list) -> m to list.groupBy { Fmt.day(it.date) }.toList().map { (d, l) -> (d as String?) to l } }
         ExpenseSort.ADDED -> listOf("Newest first" to listOf(null to shown.sortedByDescending { it.createdAt }))
@@ -389,7 +389,7 @@ private fun MemberCard(nav: NavViewModel, group: Group, uid: String, n: Long, me
 
 /** Every expense and payment [uid] took part in, newest first, with the effect it had on them. */
 private fun settledFor(uid: String, expenses: List<Expense>): List<Pair<Expense, Long>> =
-    expenses.sortedWith(compareByDescending<Expense> { it.date }.thenByDescending { it.createdAt })
+    expenses.sortedWith(compareByDescending<Expense> { it.moment }.thenByDescending { it.createdAt })
         .map { it to ((it.paid[uid] ?: 0) - (it.shares[uid] ?: 0)) }
         .filter { it.second != 0L }
 
@@ -413,8 +413,9 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     val byId = live.associateBy { it.id }
     // Settled, partly settled or open: each expense as it stands for this member.
     val progress = remember(live, group.simplify, uid) { book.progress(uid) }
-    // Payments they made to you that you can take back ("unsettle"), and what each was put towards.
-    val myPayments = if (uid == me) emptyList() else live.filter { it.settlement && uid in it.paid.keys && me in it.shares.keys }
+    // Payments they made to you that you recorded yourself and can take back ("unsettle"), and what each was put towards.
+    // A payment they recorded (an advance you confirmed) is theirs: you can't undo it.
+    val myPayments = if (uid == me) emptyList() else live.filter { it.settlement && uid in it.paid.keys && me in it.shares.keys && it.createdBy == me }
     val allocs = myPayments.associate { it.id to Pairs.allocOf(it, byId) }
     val settledBy: Map<String, List<Expense>> = myPayments
         .flatMap { pay -> allocs.getValue(pay.id).keys.map { it to pay } }.groupBy({ it.first }, { it.second })

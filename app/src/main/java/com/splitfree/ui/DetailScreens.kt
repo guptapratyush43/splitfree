@@ -74,17 +74,18 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
     Column(Modifier.fillMaxSize().imePadding()) {
         TopBar(if (e.settlement) "Payment" else "Expense", onBack = { nav.pop() }) {
             if (!e.deleted) {
-                // Expenses: only the people who paid. Payments: whoever received it or recorded it.
-                val canDelete = if (e.settlement) me in e.shares.keys || me == e.createdBy else me in e.paid.keys
+                // Expenses: only the people who paid. Payments: whoever made it or recorded it, never
+                // the receiver of someone else's advance (removing it would wipe what they owe).
+                val canDelete = if (e.settlement) me in e.paid.keys || me == e.createdBy else me in e.paid.keys
                 IconButton(onClick = {
                     if (canDelete) nav.push(Screen.Editor(gid, eid))
-                    else toast(context, "Only the people who paid for this can edit it")
+                    else toast(context, if (e.settlement) "Only the person who paid or recorded this can edit it" else "Only the people who paid for this can edit it")
                 }) {
                     Icon(Icons.Rounded.Edit, "Edit", tint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (canDelete) 1f else 0.4f), modifier = Modifier.size(28.dp))
                 }
                 IconButton(onClick = {
                     if (canDelete) confirmDelete = true
-                    else toast(context, "Only the people who paid for this can delete it")
+                    else toast(context, if (e.settlement) "Only the person who paid or recorded this can delete it" else "Only the people who paid for this can delete it")
                 }) { Icon(Icons.Rounded.DeleteOutline, "Delete", tint = MaterialTheme.colorScheme.error.copy(alpha = if (canDelete) 1f else 0.4f), modifier = Modifier.size(28.dp)) }
             }
         }
@@ -176,6 +177,52 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
                             Avatar(group.info[uid]?.name ?: "?", uid, 34.dp)
                             Spacer(Modifier.width(12.dp))
                             Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+                // An expense cleared by an advance paid earlier: how much it took, the advance, and what is left of it.
+                if (!e.settlement && !e.deleted) {
+                    val book = remember(liveHere, group.simplify) { com.splitfree.data.Pairs(liveHere, group.simplify) }
+                    val idx = liveHere.associateBy { it.id }
+                    val rows = e.involved.flatMap { d -> e.involved.map { c -> d to c } }
+                        .filter { (d, c) -> d != c && (me == d || me == c || me !in e.involved) }
+                        .mapNotNull { (d, c) ->
+                            val owed = com.splitfree.data.Pairs.owed(e, d, c).takeIf { it > 0 } ?: return@mapNotNull null
+                            val st = book.state(d, c)
+                            val pays = liveHere.filter { it.settlement && d in it.paid.keys && c in it.shares.keys }
+                            val explicit = pays.sumOf { com.splitfree.data.Pairs.allocOf(it, idx)[e.id] ?: 0L }
+                            val fromAdvance = (owed - (st.aOwes[e.id] ?: owed) - explicit).coerceAtLeast(0)
+                            // Advances: payments made before this expense with money left over after their own expenses.
+                            val advances = pays.filter { it.amount > com.splitfree.data.Pairs.allocOf(it, idx).values.sum() && it.date <= e.moment }
+                            if (fromAdvance <= 0 || advances.isEmpty()) null
+                            else AdvanceUse(d, c, fromAdvance, advances.sortedBy { it.date }, (-st.net).coerceAtLeast(0))
+                        }
+                    if (rows.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        SectionLabel("Settled with an advance")
+                        rows.forEach { r ->
+                            val payer = if (r.from == me) "You" else group.name(r.from, me)
+                            val holder = if (r.to == me) "you" else group.name(r.to, me)
+                            WarmCard(padding = 16.dp) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CategoryBubble("🤝", 40.dp)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text("${Money.format(r.used)} of ${if (r.from == me) "your" else group.name(r.from, me) + "'s"} share came from the advance",
+                                            style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                r.advances.forEach { a ->
+                                    Text("$payer paid $holder ${Money.format(a.amount)} in advance on ${settledAt(a.date)}",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.clickable { nav.push(Screen.Detail(gid, a.id)) }.padding(vertical = 2.dp))
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                Text(if (r.left > 0) "${Money.format(r.left)} of the advance is still left with $holder" else "Nothing is left of the advance now",
+                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                            }
+                            Spacer(Modifier.height(10.dp))
                         }
                     }
                 }
@@ -298,3 +345,6 @@ fun DeletedScreen(nav: NavViewModel, gid: String) {
         }
     }
 }
+
+/** Part of [from]'s share of an expense paid out of the advance [to] was holding; [left] is what remains of it. */
+private data class AdvanceUse(val from: String, val to: String, val used: Long, val advances: List<com.splitfree.data.Expense>, val left: Long)

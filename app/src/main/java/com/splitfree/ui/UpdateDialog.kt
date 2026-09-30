@@ -46,6 +46,8 @@ fun UpdateDialog(release: UpdateManager.Release) {
     val download by UpdateManager.download.collectAsStateWithLifecycle()
     val running = download is Download.Running
     val verifying by UpdateManager.verifying.collectAsStateWithLifecycle()
+    // Get the download going (or the connection ready) while the notes are being read.
+    androidx.compose.runtime.LaunchedEffect(release.version, verifying) { if (!verifying) UpdateManager.prefetch(release) }
     Dialog(onDismissRequest = { if (!running) UpdateManager.close() }, properties = DialogProperties(dismissOnClickOutside = !running)) {
         WarmCard(padding = 22.dp, background = MaterialTheme.colorScheme.background) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {

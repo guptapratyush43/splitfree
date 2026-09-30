@@ -76,6 +76,16 @@ data class Expense(
     /** Everyone touched by this expense: payers and people it is split with. */
     val involved: Set<String> get() = paid.keys + shares.keys
     val flows get() = paid to shares
+    /**
+     * When it happened, for ordering: an expense only stores its day, so one added
+     * that same day uses the moment it was added; a payment keeps its exact time.
+     */
+    val moment: Long get() {
+        if (settlement) return date
+        val z = java.time.ZoneId.systemDefault()
+        val d = java.time.Instant.ofEpochMilli(date).atZone(z).toLocalDate()
+        return if (java.time.Instant.ofEpochMilli(createdAt).atZone(z).toLocalDate() == d) createdAt else date
+    }
 }
 
 /** One line of group history. [people] are the others involved: payers, those it was split with, a payment's receiver. */

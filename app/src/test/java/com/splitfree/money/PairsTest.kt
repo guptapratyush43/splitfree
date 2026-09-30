@@ -36,6 +36,21 @@ class PairsTest {
     private fun pay(live: List<Expense>, id: String, from: String, to: String, amount: Long, simplify: Boolean = false): List<Expense> =
         live + payment(id, from, to, amount, Pairs(live, simplify).allocate(from, to, amount).amounts)
 
+    /** B pays A ₹1,000 up front; A's later ₹200 expense (split equally) comes out of it, leaving ₹900. */
+    @Test fun advanceSettlesLaterExpenses() {
+        for (simplify in listOf(false, true)) {
+            var live = listOf(payment("adv", "b", "a", 100_000))
+            live = live + expense("tea", mapOf("a" to 20_000L), mapOf("a" to 10_000L, "b" to 10_000L))
+            val book = Pairs(live, simplify)
+            val s = book.state("b", "a")
+            assertEquals(-90_000L, s.net)            // a still holds ₹900 of b's advance
+            assertEquals(0L, s.aOwes["tea"])        // b's ₹100 share is already covered
+            assertTrue(book.progress("b").getValue("tea").settled)
+            // Nothing is left for a to mark as settled on b: b owes a nothing.
+            assertTrue(book.state("b", "a").aOwes.values.all { it == 0L })
+        }
+    }
+
     @Test fun lumpSumClearsSmallestFirstThenPartlySettles() {
         val live = pay(snacks(), "p1", "me", "ramesh", 4000)   // paid ₹40 of ₹50
         val s = Pairs(live, false).state("me", "ramesh")
