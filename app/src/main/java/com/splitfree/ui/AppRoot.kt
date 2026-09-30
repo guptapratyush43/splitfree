@@ -93,7 +93,16 @@ fun AppRoot(nav: NavViewModel) {
             }
         }
         if (user == null) {
-            Box(topInset) { SignInScreen() }
+            // First launch on this phone: a short interactive welcome, then sign-in.
+            var welcomed by remember { mutableStateOf(Welcome.seen(context)) }
+            androidx.compose.animation.AnimatedContent(welcomed, transitionSpec = {
+                (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 520f)) { it / 5 } +
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200))) togetherWith
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90))
+            }, label = "welcome") { done ->
+                if (done) Box(topInset) { SignInScreen() }
+                else Box(topInset) { WelcomePager { Welcome.markSeen(context); welcomed = true } }
+            }
             return@Box
         }
         // Each screen in the back stack keeps its own saved state (tab, scroll position,

@@ -20,6 +20,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.outlined.PersonRemove
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -124,12 +128,14 @@ fun GroupSettingsScreen(nav: NavViewModel, gid: String) {
                     if (i > 0) HairLine()
                     val info = group.info[uid]
                     val n = nets[uid] ?: 0
+                    // Same three lines for everyone (name, email, balance pill), so every row lines up.
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Avatar(info?.name ?: "?", uid, 40.dp)
+                        Avatar(info?.name ?: "?", uid, 44.dp)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(group.name(uid, me), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                Text(group.name(uid, me), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                                 if (uid == group.createdBy) {
                                     Spacer(Modifier.width(8.dp))
                                     Text("Creator", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary,
@@ -139,21 +145,22 @@ fun GroupSettingsScreen(nav: NavViewModel, gid: String) {
                             }
                             Text(info?.email.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(6.dp))
+                            val tone = if (n == 0L) MaterialTheme.colorScheme.onSurfaceVariant else moneyColor(n)
+                            Text(when { n > 0 -> "Gets back ${Money.format(n)}"; n < 0 -> "Owes ${Money.format(-n)}"; else -> "Settled up" },
+                                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"), color = tone, maxLines = 1,
+                                modifier = Modifier.background(tone.copy(alpha = 0.12f), RoundedCornerShape(50)).padding(horizontal = 9.dp, vertical = 3.dp))
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(when { n > 0 -> "gets back"; n < 0 -> "owes"; else -> "settled up" }, style = MaterialTheme.typography.bodySmall, color = moneyColor(n))
-                            if (n != 0L) Text(Money.format(kotlin.math.abs(n)), style = MaterialTheme.typography.titleSmall, color = moneyColor(n))
-                            if (isCreator && uid != me) Text("Remove", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = 4.dp).clickable { removing = uid })
+                        if (isCreator && uid != me) {
+                            Spacer(Modifier.width(10.dp))
+                            RoundAction(Icons.Outlined.PersonRemove, "Remove ${group.name(uid, me)}") { removing = uid }
                         }
                     }
                 }
                 group.invited.forEach { mail ->
                     HairLine()
                     SettingRow(mail, "Invitation sent · waiting for reply", Icons.Rounded.MailOutline) {
-                        Text("Cancel", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.clickable { Repo.cancelInvite(group, mail) })
+                        RoundAction(Icons.Rounded.Close, "Cancel invite to $mail") { Repo.cancelInvite(group, mail) }
                     }
                 }
             }
@@ -295,4 +302,16 @@ private fun qr(text: String, size: Int): Bitmap {
     val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size)
     val px = IntArray(size * size) { i -> if (m[i % size, i / size]) 0xFF1F1E1D.toInt() else 0xFFFFFFFF.toInt() }
     return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
+}
+
+/** A small round red action (remove a member, cancel an invite), the same size and place on every row. */
+@Composable
+private fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val src = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp).pressScale(src, 0.88f)
+        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.10f), androidx.compose.foundation.shape.CircleShape)
+        .clickable(interactionSource = src, indication = null) { Haptics.tick(ctx); onClick() }) {
+        Icon(icon, label, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+    }
 }

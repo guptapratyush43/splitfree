@@ -691,7 +691,8 @@ private fun PayBackPage(group: Group, raw: List<Expense>, live: List<Expense>, m
         item {
             Text("Paid someone a lump sum?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
             Spacer(Modifier.height(6.dp))
-            Text("Record it here. Your smallest dues are settled first; the other person confirms it.",
+            Text("Record it here without picking expenses. It settles your smallest dues first, then partly settles the next. " +
+                "Anything extra is owed back to you, and the other person confirms it before it counts.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(16.dp))
             PrimaryButton("Record a payment", Icons.Rounded.Payments, { recording = true }, Modifier.fillMaxWidth(), enabled = others.isNotEmpty())

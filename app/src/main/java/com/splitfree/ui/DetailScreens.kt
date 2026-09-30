@@ -192,8 +192,9 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
                             val pays = liveHere.filter { it.settlement && d in it.paid.keys && c in it.shares.keys }
                             val explicit = pays.sumOf { com.splitfree.data.Pairs.allocOf(it, idx)[e.id] ?: 0L }
                             val fromAdvance = (owed - (st.aOwes[e.id] ?: owed) - explicit).coerceAtLeast(0)
-                            // Advances: payments made before this expense with money left over after their own expenses.
-                            val advances = pays.filter { it.amount > com.splitfree.data.Pairs.allocOf(it, idx).values.sum() && it.date <= e.moment }
+                            // Advances: every payment with money left over after the expenses it was for, earlier or later
+                            // than this one, since all of them make up what is still left.
+                            val advances = pays.filter { it.amount > com.splitfree.data.Pairs.allocOf(it, idx).values.sum() }
                             if (fromAdvance <= 0 || advances.isEmpty()) null
                             else AdvanceUse(d, c, fromAdvance, advances.sortedBy { it.date }, (-st.net).coerceAtLeast(0))
                         }
