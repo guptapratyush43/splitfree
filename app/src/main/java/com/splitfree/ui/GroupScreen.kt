@@ -50,6 +50,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.rounded.SwapVert
@@ -417,7 +418,17 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     // Settled: everything they took part in. Otherwise: what is behind the current balance.
     // Everything they took part in, newest first; the ones still behind their balance are "pending".
     val pendingIds = if (n == 0L) emptySet() else pendingFor(uid, live).map { it.first.id }.toSet()
-    val pending = settledFor(uid, live)
+    // Payments they made to you that you can take back ("unsettle").
+    val myPayments = if (uid == me) emptyList() else live.filter { it.settlement && uid in it.paid.keys && me in it.shares.keys }
+    // A payment that settled particular expenses is shown as a "Settled" tag on those, not as a row of its own.
+    val settledBy: Map<String, Expense> = myPayments.flatMap { s ->
+        s.inputs["settles"].orEmpty().split(',').filter { it.isNotBlank() }.map { it to s }
+    }.toMap()
+    val taggedPayments = live.filter { it.settlement && !it.inputs["settles"].isNullOrBlank() }.map { it.id }.toSet()
+    val pending = settledFor(uid, live).filter { it.first.id !in taggedPayments }
+    // Unsettle: expenses settled one by one, plus whole payments they made to you.
+    val unsettleIds = pending.map { it.first.id }.filter { it in settledBy }.toSet() +
+        myPayments.filter { it.id !in taggedPayments }.map { it.id }
     // On someone else's page, the expenses where they still owe you can be picked and marked as settled.
     val owedNow = debts.filter { it.from == uid && it.to == me }.sumOf { it.amount }
     val owedToMe = if (uid == me || n == 0L || owedNow == 0L) emptyMap() else pending.filter { it.first.id in pendingIds }.mapNotNull { (e, _) ->
@@ -428,11 +439,15 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     val picked = androidx.compose.runtime.saveable.rememberSaveable(saver = androidx.compose.runtime.saveable.listSaver(
         save = { it.toList() }, restore = { androidx.compose.runtime.mutableStateListOf<String>().apply { addAll(it) } }
     )) { androidx.compose.runtime.mutableStateListOf<String>() }
-    LaunchedEffect(owedToMe.keys) { picked.retainAll(owedToMe.keys) }
-    // Long-press an expense to start picking; circles slide in and nudge the amounts left.
+    // Long-press starts picking: a pending expense to settle, or a settled one to unsettle.
     var selecting by rememberSaveable { mutableStateOf(false) }
+    var unsettling by rememberSaveable { mutableStateOf(false) }
+    val pickableNow = if (unsettling) unsettleIds else owedToMe.keys
+    LaunchedEffect(pickableNow) { picked.retainAll(pickableNow) }
+    var unsettlePicked by remember { mutableStateOf(false) }
     LaunchedEffect(picked.size) { if (picked.isEmpty()) selecting = false }
     androidx.activity.compose.BackHandler(selecting) { picked.clear(); selecting = false }
+    LaunchedEffect(selecting) { if (!selecting) unsettling = false }
     var settlePicked by remember { mutableStateOf(false) }
     val pickedTotal = picked.sumOf { owedToMe[it] ?: 0L }
     Box(Modifier.fillMaxSize()) {
@@ -490,7 +505,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
             if (pending.isNotEmpty()) item {
                 Spacer(Modifier.height(8.dp))
                 SectionLabel(if (n == 0L) "All settled up expenses" else "Expenses", Modifier.padding(bottom = 0.dp))
-                if (owedToMe.isNotEmpty()) Text("You can also long-press an expense you're owed to mark it as settled.", style = MaterialTheme.typography.bodySmall,
+                if (owedToMe.isNotEmpty() || unsettleIds.isNotEmpty()) Text("You can also long-press an expense to mark it as settled or unsettled.", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
             }
             pending.groupBy { Fmt.day(it.first.date) }.entries.forEachIndexed { di, (day, list) ->
@@ -498,22 +513,28 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 8.dp)) {
                         Text(day, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f).padding(start = 4.dp))
-                        if (di == 0 && owedToMe.isNotEmpty() && selecting) {
-                            val allOn = picked.size == owedToMe.size
+                        if (di == 0 && pickableNow.isNotEmpty() && selecting) {
+                            val allOn = picked.size == pickableNow.size
                             val ctx = androidx.compose.ui.platform.LocalContext.current
                             Text(if (allOn) "Deselect all" else "Select all", style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
-                                    .clickable { Haptics.tick(ctx); if (allOn) picked.clear() else { picked.clear(); picked.addAll(owedToMe.keys) } }
+                                    .clickable { Haptics.tick(ctx); if (allOn) picked.clear() else { picked.clear(); picked.addAll(pickableNow) } }
                                     .padding(horizontal = 8.dp, vertical = 4.dp))
                         }
                     }
                 }
                 items(list, key = { "p" + it.first.id }) { (e, effect) ->
-                    val pickable = e.id in owedToMe
+                    val canSettle = e.id in owedToMe
+                    val canUnsettle = e.id in unsettleIds
+                    // Once picking has started, only rows of that kind (settle or unsettle) stay pickable.
+                    val pickable = if (selecting) e.id in pickableNow else canSettle || canUnsettle
                     val toggle = { if (e.id in picked) picked.remove(e.id) else picked.add(e.id); Unit }
                     PendingRow(group, e, effect, uid, me, settled = !e.settlement && e.id !in pendingIds, pickable = pickable && selecting, picked = e.id in picked, onPick = toggle,
-                        onLongClick = if (pickable) ({ selecting = true; if (e.id !in picked) picked.add(e.id) }) else null) {
+                        onLongClick = if (canSettle || canUnsettle) ({
+                            if (!selecting) { unsettling = canUnsettle && !canSettle; picked.clear(); picked.add(e.id); selecting = true }
+                            else if (pickable && e.id !in picked) picked.add(e.id)
+                        }) else null) {
                         if (selecting && pickable) toggle() else nav.push(Screen.Detail(gid, e.id))
                     }
                     Spacer(Modifier.height(8.dp))
@@ -532,9 +553,34 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                 androidx.compose.ui.graphics.Brush.verticalGradient(0f to bg.copy(alpha = 0f), 0.35f to bg.copy(alpha = 0.75f), 0.6f to bg, 1f to bg)
             ).padding(top = 40.dp)
         ) {
-            FloatingAdd("Mark as settled · ${Money.format(minOf(pickedTotal, owedNow))}", Icons.Rounded.Handshake, { settlePicked = true })
+            if (unsettling) FloatingAdd("Mark as unsettled", Icons.Rounded.Undo, { unsettlePicked = true })
+            else FloatingAdd("Mark as settled · ${Money.format(minOf(pickedTotal, owedNow))}", Icons.Rounded.Handshake, { settlePicked = true })
         }
     }
+    }
+    if (unsettlePicked) {
+        ConfirmDialog("Mark as unsettled?", "${group.name(uid, me)} will owe you for ${picked.size} ${if (picked.size == 1) "item" else "items"} again.", "Unsettle",
+            onConfirm = {
+                val chosen = picked.toSet()
+                // Whole payments picked directly.
+                val gone = myPayments.filter { it.id in chosen }
+                gone.forEach { Repo.unsettle(group, it) }
+                // Expenses settled one by one: take them out of their payment (or drop it when nothing is left).
+                chosen.mapNotNull { settledBy[it] }.distinctBy { it.id }.filter { s -> gone.none { it.id == s.id } }.forEach { s ->
+                    val ids = s.inputs["settles"].orEmpty().split(',').filter { it.isNotBlank() }
+                    val keep = ids.filter { it !in chosen }
+                    val back = ids.filter { it in chosen }.sumOf { id ->
+                        live.firstOrNull { it.id == id }?.let { x ->
+                            Balances.settle(Balances.nets(listOf(x.flows))).filter { it.from == uid && it.to == me }.sumOf { it.amount }
+                        } ?: 0L
+                    }
+                    val left = s.amount - back
+                    if (keep.isEmpty() || left <= 0) Repo.unsettle(group, s)
+                    else Repo.saveExpense(group, s.copy(amount = left, paid = mapOf(uid to left), shares = mapOf(me to left),
+                        inputs = mapOf("settles" to keep.joinToString(",")), updatedAt = System.currentTimeMillis()), isNew = false)
+                }
+                picked.clear(); Haptics.success(context); toast(context, "Marked as unsettled")
+            }, onDismiss = { unsettlePicked = false }, danger = false)
     }
     if (settlePicked) {
         val amount = minOf(pickedTotal, owedNow)
@@ -586,15 +632,24 @@ private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: 
                                 .padding(horizontal = 7.dp, vertical = 1.dp))
                     }
                 }
-                Text("${e.category.label} · Added by ${group.name(e.createdBy, me)}", style = MaterialTheme.typography.bodySmall,
+                Text(if (e.settlement) "Payment · Marked by ${group.name(e.createdBy, me)}" else "${e.category.label} · Added by ${group.name(e.createdBy, me)}",
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
                 val you = uid == me
-                Text(if (effect > 0) (if (you) "You lent" else "Lent") else (if (you) "You borrowed" else "Borrowed"),
-                    style = MaterialTheme.typography.bodySmall, color = moneyColor(effect))
-                Text(Money.format(abs(effect)), style = MaterialTheme.typography.titleSmall, color = moneyColor(effect))
+                if (e.settlement) {
+                    // A payment settles money; it is not lending or borrowing, so it stays neutral.
+                    val grey = MaterialTheme.colorScheme.onSurfaceVariant
+                    Text(if (effect > 0) (if (you) "You paid" else "Paid") else (if (you) "You received" else "Received"),
+                        style = MaterialTheme.typography.bodySmall, color = grey)
+                    Text(Money.format(abs(effect)), style = MaterialTheme.typography.titleSmall, color = grey)
+                } else {
+                    Text(if (effect > 0) (if (you) "You lent" else "Lent") else (if (you) "You borrowed" else "Borrowed"),
+                        style = MaterialTheme.typography.bodySmall, color = moneyColor(effect))
+                    Text(Money.format(abs(effect)), style = MaterialTheme.typography.titleSmall, color = moneyColor(effect))
+                }
             }
             val ctx = androidx.compose.ui.platform.LocalContext.current
             androidx.compose.animation.AnimatedVisibility(pickable,

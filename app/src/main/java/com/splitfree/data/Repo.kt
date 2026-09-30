@@ -309,6 +309,16 @@ object Repo {
         notify(g, e.involved, if (e.settlement) "Payment deleted in ${g.name}" else "Expense deleted in ${g.name}", "${Auth.name} deleted $label.", e.id, screen = "group")
     }
 
+    /** Takes back a "marked as settled" payment: the amount is owed again. */
+    fun unsettle(g: Group, e: Expense) {
+        group(g.id).collection("expenses").document(e.id)
+            .update(mapOf("deleted" to true, "deletedAt" to System.currentTimeMillis(), "repeat" to Repeat.NONE.name))
+        val from = e.paid.keys.firstOrNull()?.let { g.info[it]?.name } ?: "Someone"
+        val text = "${Auth.name} marked ${Money.format(e.amount)} from $from as unsettled"
+        log(g.id, text, e.id, e.involved)
+        notify(g, e.involved, "Payment unsettled in ${g.name}", "$text. It is owed again.", null, screen = "member")
+    }
+
     fun restoreExpense(g: Group, e: Expense) {
         group(g.id).collection("expenses").document(e.id).update("deleted", false)
         val label = if (e.settlement) "a payment of ${Money.format(e.amount)}" else "“${e.title}” (${Money.format(e.amount)})"
