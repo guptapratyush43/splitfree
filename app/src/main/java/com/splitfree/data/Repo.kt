@@ -22,6 +22,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
@@ -451,13 +452,29 @@ object Repo {
             .put("title", title).put("body", body).put("expenseId", eid ?: "").put("force", force).put("screen", screen))
     }
 
+    /**
+     * Sends a notification request straight away while the app is open. Android's
+     * background scheduler (which phones often hold back to save battery) is only
+     * the safety net: it takes over after 25 seconds if the direct send hasn't
+     * gone through, for instance when offline or the app was closed.
+     */
     private fun queue(json: JSONObject) {
         val work = OneTimeWorkRequestBuilder<NotifyWorker>()
             .setInputData(workDataOf("json" to json.toString()))
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setInitialDelay(25, TimeUnit.SECONDS)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        WorkManager.getInstance(app).enqueue(work)
+        val wm = WorkManager.getInstance(app)
+        wm.enqueue(work)
+        com.splitfree.AppScope.launch {
+            // A few quick tries: the first can be a moment ahead of the data it refers to reaching the server.
+            for (wait in listOf(0L, 1500L, 3000L)) {
+                kotlinx.coroutines.delay(wait)
+                val sent = runCatching { kotlinx.coroutines.withTimeout(12_000) { Api.post("/api/notify", json) } }.isSuccess
+                if (sent) { wm.cancelWorkById(work.id); return@launch }
+            }
+        }
     }
 
     private fun code(): String {
