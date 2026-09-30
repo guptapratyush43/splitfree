@@ -48,6 +48,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -236,7 +239,7 @@ private fun WelcomeBody(onFinish: () -> Unit) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(ART_TOP))
                 Box(Modifier.fillMaxWidth().height(ART_HEIGHT), contentAlignment = Alignment.Center) {
-                    Splitty(pager, pokes, clock, Modifier.size(MASCOT))
+                    Splitty({ pager.position() }, { pager.currentPageOffsetFraction }, pokes, clock, Modifier.size(MASCOT))
                 }
             }
         }
@@ -273,7 +276,7 @@ private fun WelcomeBody(onFinish: () -> Unit) {
  * together, with a handshake, once everyone is settled on the last page.
  */
 @Composable
-private fun Splitty(pager: PagerState, pokes: Int, clock: State<Float>, modifier: Modifier) {
+private fun Splitty(pos: () -> Float, drag: () -> Float, pokes: Int, clock: State<Float>, modifier: Modifier) {
     val reduce = LocalReduceMotion.current
     val appear = remember { Animatable(if (reduce) 1f else 0f) }
     val blink = remember { Animatable(0f) }
@@ -322,7 +325,7 @@ private fun Splitty(pager: PagerState, pokes: Int, clock: State<Float>, modifier
                 transformOrigin = TransformOrigin(0.5f, 0.9f)
             }
         ) {
-            drawSplitty(pager.position(), pager.currentPageOffsetFraction, clock.value, blink.value, happy.value, burst.value)
+            drawSplitty(pos(), drag(), clock.value, blink.value, happy.value, burst.value)
         }
     }
 }
@@ -586,4 +589,145 @@ private fun DrawScope.sparkle(c: Offset, r: Float, color: Color) {
         close()
     }
     drawPath(p, color)
+}
+
+// --- Empty states: the same character, before there is anything to show ------
+
+/** The character on its own, tinted like welcome page [tone] (0 clay, 1 blue, 2 green). Tap it to make it hop. */
+@Composable
+private fun Mascot(tone: Float, clock: State<Float>, modifier: Modifier = Modifier.size(MASCOT)) {
+    val ctx = LocalContext.current
+    var pokes by remember { mutableIntStateOf(0) }
+    Box(modifier.clickable(remember { MutableInteractionSource() }, indication = null) { Haptics.press(ctx); pokes++ }) {
+        Splitty({ tone }, { 0f }, pokes, clock, Modifier.fillMaxSize())
+    }
+}
+
+private class Idea(val emoji: String, val name: String, val x: Dp, val y: Dp)
+
+private val IDEAS = listOf(
+    Idea("🏠", "Flat", (-104).dp, (-92).dp),
+    Idea("✈️", "Goa trip", 106.dp, (-70).dp),
+    Idea("🍱", "Office lunch", (-100).dp, 84.dp),
+    Idea("🎉", "Party", 108.dp, 96.dp)
+)
+
+/**
+ * Groups tab with no groups: ideas float around the character. Tapping one starts a
+ * group with that name; the buttons start a blank one or join by QR.
+ */
+@Composable
+fun EmptyGroupsScene(onCreate: (String) -> Unit, onScan: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val clock = rememberClock()
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+        Box(Modifier.fillMaxWidth().height(270.dp), contentAlignment = Alignment.Center) {
+            IDEAS.forEachIndexed { i, idea ->
+                val pop = rememberPop(true, 220L + i * 100L)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .graphicsLayer {
+                            val p = pop.value
+                            translationX = idea.x.toPx() * p
+                            translationY = idea.y.toPx() * p + sin(clock.value * 1.7f + i * 1.5f) * 5.dp.toPx()
+                            rotationZ = sin(clock.value * 1.2f + i) * 3f
+                            scaleX = p; scaleY = p
+                            alpha = p.coerceIn(0f, 1f)
+                        }
+                        .tap { onCreate(idea.name) }
+                        .background(scheme.surface, RoundedCornerShape(16.dp))
+                        .border(1.dp, PAGES[0].deep.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 11.dp, vertical = 8.dp)
+                ) {
+                    Text(idea.emoji, fontSize = 17.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(idea.name, style = MaterialTheme.typography.labelLarge, color = scheme.onSurface, maxLines = 1)
+                }
+            }
+            Mascot(0f, clock)
+        }
+        Text("Start your first group", style = MaterialTheme.typography.headlineSmall, color = scheme.onBackground, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(8.dp))
+        Text("Tap an idea above or make your own, then invite friends by email, link or QR.",
+            style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(20.dp))
+        PrimaryButton("Create a group", Icons.Rounded.GroupAdd, { onCreate("") }, Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        SecondaryButton("Scan QR to join", Icons.Rounded.QrCodeScanner, onScan, Modifier.fillMaxWidth())
+    }
+}
+
+private class Sample(val emoji: String, val title: String, val line: String, val good: Boolean?)
+
+private val SAMPLES = listOf(
+    Sample("🍕", "Ravi added “Pizza night”", "You owe ₹150.00", false),
+    Sample("💬", "Asha commented on “Groceries”", "“Chai is on me tomorrow!”", null),
+    Sample("🤝", "Ravi settled up with you", "₹400.00 · all square now", true),
+    Sample("🚕", "You added “Airport cab”", "Asha owes you ₹240.00", true)
+)
+
+private const val FEED_PERIOD = 2.2f
+
+/**
+ * Activity tab with nothing yet: a make-believe feed glides past below the character,
+ * showing what will turn up here. Only layers move, so it stays perfectly smooth.
+ */
+@Composable
+fun EmptyActivityScene(hasGroups: Boolean, onGo: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val clock = rememberClock()
+    val row = 74.dp
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+        Spacer(Modifier.height(8.dp))
+        Mascot(1f, clock, Modifier.size(116.dp))
+        Spacer(Modifier.height(14.dp))
+        // A new card slides in on top every couple of seconds; the oldest fades out at the bottom.
+        Box(Modifier.fillMaxWidth().height(row * 3).clipToBounds()) {
+            for (i in 0..3) {
+                Box(Modifier.fillMaxWidth().height(row).graphicsLayer {
+                    val f = (clock.value % FEED_PERIOD) / FEED_PERIOD
+                    val e = androidx.compose.animation.core.FastOutSlowInEasing.transform((f / 0.3f).coerceIn(0f, 1f))
+                    translationY = (i - 1 + e) * row.toPx()
+                    alpha = when (i) { 0 -> e; 3 -> 1f - e; else -> 1f }
+                    val k = if (i == 0) 0.94f + 0.06f * e else 1f
+                    scaleX = k; scaleY = k
+                }) {
+                    SampleCard(clock, i)
+                }
+            }
+        }
+        Spacer(Modifier.height(18.dp))
+        Text("Your activity lives here", style = MaterialTheme.typography.headlineSmall, color = scheme.onBackground, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(8.dp))
+        Text("When anyone adds an expense, comments or settles up in your groups, you will see it here first.",
+            style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(20.dp))
+        PrimaryButton(if (hasGroups) "Go to your groups" else "Create a group", null, onGo, Modifier.fillMaxWidth())
+    }
+}
+
+/** The sample shown in conveyor slot [slot] right now. */
+@Composable
+private fun SampleCard(clock: State<Float>, slot: Int) {
+    val scheme = MaterialTheme.colorScheme
+    // Only this card's text recomposes when the loop moves on to the next sample.
+    val n by remember { androidx.compose.runtime.derivedStateOf { floor(clock.value / FEED_PERIOD).toInt() } }
+    val s = SAMPLES[Math.floorMod(n - slot, SAMPLES.size)]
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)
+            .background(scheme.surface, RoundedCornerShape(16.dp))
+            .border(1.dp, scheme.outline, RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 9.dp)
+    ) {
+        Box(Modifier.size(38.dp).background(scheme.surfaceVariant, CircleShape), contentAlignment = Alignment.Center) { Text(s.emoji, fontSize = 18.sp) }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(s.title, style = MaterialTheme.typography.titleSmall, color = scheme.onSurface, maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(s.line, style = MaterialTheme.typography.bodySmall, maxLines = 1,
+                color = when (s.good) { true -> moneyColor(1); false -> moneyColor(-1); null -> scheme.onSurfaceVariant })
+        }
+    }
 }

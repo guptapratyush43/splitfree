@@ -143,6 +143,7 @@ private fun GroupsTab(nav: NavViewModel) {
     val invites by Repo.invites.collectAsStateWithLifecycle()
     val loaded by Repo.groupsLoaded.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
+    var suggested by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     // Back: the first press hides the keyboard (the system does that) and keeps the text; the next one leaves the app.
@@ -210,8 +211,8 @@ private fun GroupsTab(nav: NavViewModel) {
                 return@LazyColumn
             }
 
-            // ---- overall + filter ----
-            item {
+            // ---- overall + filter (not while there are no groups: the welcome scene covers that) ----
+            if (!(loaded && groups.isEmpty())) item {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 6.dp)) {
                     Text(
                         buildAnnotatedString {
@@ -229,12 +230,8 @@ private fun GroupsTab(nav: NavViewModel) {
                 }
             }
             if (loaded && groups.isEmpty()) item {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 28.dp)) {
-                    IconBubble(Icons.Rounded.Groups)
-                    Spacer(Modifier.height(16.dp))
-                    Text("No groups yet", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-                    Spacer(Modifier.height(6.dp))
-                    Footnote("Make one for your flat, a trip or office lunches, then invite people by email or link.")
+                Box(Modifier.padding(top = 8.dp)) {
+                    EmptyGroupsScene(onCreate = { name -> suggested = name; creating = true }, onScan = { nav.push(Screen.Scan) })
                 }
             }
             if (groups.isNotEmpty() && visible.isEmpty()) item { Spacer(Modifier.height(20.dp)); Footnote("No groups match this filter.") }
@@ -246,19 +243,20 @@ private fun GroupsTab(nav: NavViewModel) {
 
       }
         androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides groupsLayer) {
-            FloatingAdd("New group", Icons.Rounded.GroupAdd, { creating = true }, Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = TabBarSpace + 4.dp))
+            if (!(loaded && groups.isEmpty()))
+                FloatingAdd("New group", Icons.Rounded.GroupAdd, { creating = true }, Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = TabBarSpace + 4.dp))
         }
     }
 
-    if (creating) NewGroupDialog(onDismiss = { creating = false }, onScan = { creating = false; nav.push(Screen.Scan) }) { id -> creating = false; nav.push(Screen.Group(id)) }
+    if (creating) NewGroupDialog(onDismiss = { creating = false; suggested = "" }, onScan = { creating = false; nav.push(Screen.Scan) }, initialName = suggested) { id -> creating = false; suggested = ""; nav.push(Screen.Group(id)) }
     qrFor?.let { g -> InviteQrDialog(g) { qrFor = null } }
     // Back closes an open card panel first.
     androidx.activity.compose.BackHandler(menuFor != null) { menuFor = null }
 }
 
 @Composable
-fun NewGroupDialog(onDismiss: () -> Unit, onScan: (() -> Unit)? = null, onCreated: (String) -> Unit) {
-    var name by remember { mutableStateOf("") }
+fun NewGroupDialog(onDismiss: () -> Unit, onScan: (() -> Unit)? = null, initialName: String = "", onCreated: (String) -> Unit) {
+    var name by remember { mutableStateOf(initialName) }
     // Joining someone else's group instead? Scan their QR code from here.
     WarmDialog("New group", onDismiss = onDismiss, action = onScan?.let { scan -> { ActionPill("Scan QR", scan, icon = Icons.Rounded.QrCodeScanner) } }) {
         Field(name, { name = it.take(60) }, label = "Group name", placeholder = "e.g. Goa trip, Flat 4B")
@@ -734,14 +732,7 @@ private fun ActivityTab(nav: NavViewModel) {
         when {
             items == null -> item { Spacer(Modifier.height(24.dp)); Footnote("Loading…") }
             items!!.isEmpty() -> item {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 32.dp)) {
-                    IconBubble(Icons.Rounded.Timeline)
-                    Spacer(Modifier.height(18.dp))
-                    Text("No activity yet", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
-                    Spacer(Modifier.height(6.dp))
-                    Text("Expenses, payments and comments in your groups show up here.", style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
+                Box(Modifier.padding(top = 6.dp)) { EmptyActivityScene(groups.isNotEmpty()) { nav.homeTab.value = 0 } }
             }
             else -> items!!.groupBy { Fmt.day(it.second.at) }.forEach { (day, dayItems) ->
             item(key = "d$day") {
