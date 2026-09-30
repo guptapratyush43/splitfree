@@ -47,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.outlined.PendingActions
 import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.QrCodeScanner
@@ -114,9 +115,12 @@ fun HomeScreen(nav: NavViewModel) {
             }
         }
         val invites by Repo.invites.collectAsStateWithLifecycle()
+        val groupsForDot by Repo.groups.collectAsStateWithLifecycle()
+        val expensesForDot by Repo.expenses.collectAsStateWithLifecycle()
+        val claimsWaiting = groupsForDot.any { g -> expensesForDot[g.id].orEmpty().any { it.pending && Auth.uid in it.shares.keys } }
         BottomTabs(
             listOf("Groups" to Icons.Rounded.Groups, "Activity" to Icons.Rounded.Timeline, "Account" to Icons.Rounded.AccountCircle),
-            tab.coerceAtMost(2), dots = if (invites.isNotEmpty()) setOf(1) else emptySet()
+            tab.coerceAtMost(2), dots = if (invites.isNotEmpty() || claimsWaiting) setOf(1) else emptySet()
         ) { nav.homeTab.value = it }
     }
 }
@@ -508,13 +512,11 @@ private fun Mist(list: androidx.compose.foundation.lazy.LazyListState) {
     )
 }
 
-/** "Invitations" capsule: soft rings ripple around it while one is waiting for your answer. */
+/** "Pending actions" capsule: soft rings ripple around it while something is waiting for your answer. */
 @Composable
-private fun InvitationsCapsule(onOpen: () -> Unit) {
-    val invites by Repo.invites.collectAsStateWithLifecycle()
+private fun InvitationsCapsule(pending: Boolean, onOpen: () -> Unit) {
     val ctx = LocalContext.current
     val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val pending = invites.isNotEmpty()
     val tint = if (pending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
     val pill = androidx.compose.foundation.shape.RoundedCornerShape(50)
     Row(
@@ -526,13 +528,13 @@ private fun InvitationsCapsule(onOpen: () -> Unit) {
             .border(1.dp, if (pending) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline, pill)
             .clickable(interactionSource = src, indication = null) {
                 Haptics.tick(ctx)
-                if (pending) onOpen() else toast(ctx, "No invitations at the moment")
+                if (pending) onOpen() else toast(ctx, "No pending actions at the moment")
             }
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        Icon(Icons.Rounded.MailOutline, null, tint = tint, modifier = Modifier.size(20.dp))
+        Icon(Icons.Outlined.PendingActions, null, tint = tint, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(6.dp))
-        Text("Invitations", style = MaterialTheme.typography.titleSmall, color = tint)
+        Text("Pending actions", style = MaterialTheme.typography.titleSmall, color = tint)
     }
 }
 
@@ -669,8 +671,12 @@ private fun SearchCapsule(
 private fun ActivityTab(nav: NavViewModel) {
     val groups by Repo.groups.collectAsStateWithLifecycle()
     val invites by Repo.invites.collectAsStateWithLifecycle()
+    // Payments others say they made to me, across every group, waiting for my confirmation.
+    val allExpenses by Repo.expenses.collectAsStateWithLifecycle()
+    val claims = groups.flatMap { g -> allExpenses[g.id].orEmpty().filter { it.pending && Auth.uid in it.shares.keys }.map { g to it } }
+    val anyPending = invites.isNotEmpty() || claims.isNotEmpty()
     var showInv by rememberSaveable { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(invites.isEmpty()) { if (invites.isEmpty()) showInv = false }
+    androidx.compose.runtime.LaunchedEffect(anyPending) { if (!anyPending) showInv = false }
     val ids = groups.map { it.id }
     val flow = remember(ids) {
         if (ids.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
@@ -685,22 +691,26 @@ private fun ActivityTab(nav: NavViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 6.dp)) {
                 Text("Activity", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f))
-                InvitationsCapsule { showInv = !showInv }
+                InvitationsCapsule(anyPending) { showInv = !showInv }
             }
             HairLine()
             Spacer(Modifier.height(10.dp))
         }
-        // Tapping "Invitations" shows each waiting invite as a card to accept or reject.
+        // Tapping "Pending actions" shows each waiting invite and payment as a card to answer.
         item(key = "invites") {
-            androidx.compose.animation.AnimatedVisibility(showInv && invites.isNotEmpty(),
+            androidx.compose.animation.AnimatedVisibility(showInv && anyPending,
                 enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
                     androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(260, delayMillis = 60)),
                 exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
                     androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))) {
                 Column {
-                    SectionLabel("Invitations", Modifier.padding(start = 24.dp, top = 4.dp))
+                    if (invites.isNotEmpty()) SectionLabel("Invitations", Modifier.padding(start = 24.dp, top = 4.dp))
                     invites.forEach { inv ->
                         Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) { InviteCard(inv) { gid -> nav.push(Screen.Group(gid)) } }
+                    }
+                    if (claims.isNotEmpty()) SectionLabel("Payments to confirm", Modifier.padding(start = 24.dp, top = 4.dp))
+                    claims.forEach { (g, c) ->
+                        Box(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) { ClaimCard(g, c, Auth.uid.orEmpty(), showGroup = true) }
                     }
                     Spacer(Modifier.height(10.dp))
                 }

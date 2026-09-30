@@ -123,9 +123,6 @@ fun AccountTab(nav: NavViewModel) {
         Spacer(Modifier.height(10.dp))
         HairLine()
         SettingRow("Log out", null, Icons.AutoMirrored.Rounded.Logout, onClick = { confirm = "logout" })
-        SettingRow("Delete account", "Removes you from every group and deletes your account", Icons.Rounded.DeleteForever, onClick = {
-            confirm = if (Repo.groups.value.any { Repo.myNet(it.id) != 0L }) "dues" else "type"
-        }, danger = true)
         Spacer(Modifier.height(18.dp))
         Footnote("Split Free v${BuildConfig.VERSION_NAME}")
         Spacer(Modifier.height(24.dp))
@@ -134,55 +131,6 @@ fun AccountTab(nav: NavViewModel) {
     when (confirm) {
         "logout" -> ConfirmDialog("Log out?", "Your groups stay safe in the cloud. Sign in again any time to see them.", "Log out",
             onConfirm = { com.splitfree.AppScope.launch { Auth.signOut(context) } }, onDismiss = { confirm = null }, danger = false)
-        "dues" -> DuesDialog("You have pending dues. Clear them, then you can delete your account.") { confirm = null }
-        "type" -> {
-            var typed by remember { mutableStateOf("") }
-            WarmDialog("Delete account?", onDismiss = { confirm = null }) {
-                Text("This removes you from all groups and erases your account for good. Type confirm to continue.",
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(14.dp))
-                Field(typed, { typed = it.trim() }, placeholder = "confirm", keyboard = androidx.compose.ui.text.input.KeyboardType.Password)
-                Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    SecondaryButton("Cancel", null, { confirm = null }, Modifier.weight(1f))
-                    SecondaryButton("Confirm", null, { confirm = "final" }, Modifier.weight(1f), enabled = typed == "confirm", danger = true)
-                }
-            }
-        }
-        "final" -> {
-            var left by remember { mutableIntStateOf(5) }
-            LaunchedEffect(Unit) { while (left > 0) { kotlinx.coroutines.delay(1000); left-- } }
-            WarmDialog("Really leaving?", onDismiss = { confirm = null }) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    androidx.compose.foundation.Image(
-                        androidx.compose.ui.res.painterResource(com.splitfree.R.drawable.av_cry), contentDescription = "A crying face",
-                        modifier = Modifier.size(120.dp)
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text("Do you really want to delete your account? This can't be undone.",
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                }
-                Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    PrimaryButton("Stay", null, { confirm = null }, Modifier.weight(1f))
-                    SecondaryButton(if (left > 0) "Delete ($left)" else "Delete", null, {
-                        confirm = null
-                        Repo.deleting.value = true
-                        com.splitfree.AppScope.launch {
-                            try {
-                                Backup.wipeForAccountDeletion()
-                                Repo.deleteAccount()
-                                Auth.signOut(context)
-                                toast(context, "Account deleted")
-                            } catch (e: Exception) {
-                                toast(context, if (e is kotlinx.coroutines.CancellationException) "Couldn't delete your account. Please try again." else Api.friendly(e))
-                            } finally { Repo.deleting.value = false }
-                        }
-                    }, Modifier.weight(1f), enabled = left == 0, danger = true)
-                }
-            }
-        }
     }
 }
 

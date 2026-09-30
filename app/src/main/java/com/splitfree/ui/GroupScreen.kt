@@ -690,41 +690,63 @@ private fun PayBackPage(group: Group, raw: List<Expense>, live: List<Expense>, m
             if (claims.isNotEmpty()) SectionLabel("Waiting for confirmation")
         }
         items(claims, key = { it.id }) { c ->
-            val from = c.paid.keys.firstOrNull().orEmpty()
-            val to = c.shares.keys.firstOrNull().orEmpty()
-            val mine = to == me
-            WarmCard(padding = 14.dp, modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(group.info[if (mine) from else to]?.name ?: "?", if (mine) from else to, 40.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(if (mine) "${group.name(from, me)} says they paid you" else "Waiting for ${group.name(to, me)} to confirm",
-                            style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-                        Text(Fmt.relative(c.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text(Money.format(c.amount), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                }
-                // What confirming would do, in words.
-                val st = book.state(from, to)
-                val alloc = com.splitfree.money.Ledger.allocate(c.amount, st.aOwes, st.aDues)
-                val lines = describeAlloc(alloc, st.aOwes, byId, if (mine) "%s is extra: you will owe it back." else "%s is extra: they will owe it back.")
-                if (lines.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                }
-                Spacer(Modifier.height(12.dp))
-                if (mine) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    SecondaryButton("Reject", null, { Repo.rejectPayment(group, c); toast(context, "Payment rejected") }, Modifier.weight(1f))
-                    PrimaryButton("Confirm", null, {
-                        Repo.confirmPayment(group, c, alloc.amounts); Haptics.success(context); toast(context, "Payment confirmed")
-                    }, Modifier.weight(1f))
-                } else TertiaryButton("Cancel this payment", { Repo.rejectPayment(group, c); toast(context, "Payment cancelled") }, Modifier.fillMaxWidth())
-            }
+            Box(Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)) { ClaimCard(group, c, me) }
             Spacer(Modifier.height(10.dp))
         }
     }
     if (recording) RecordPaymentDialog(group, book, byId, others, me) { recording = false }
+}
+
+/**
+ * A payment someone says they made, waiting for the receiver: what confirming
+ * would settle, with Reject / Confirm for the receiver (and "Ignore for now" in
+ * the pop-up), or Cancel for the one who recorded it.
+ */
+@Composable
+fun ClaimCard(group: Group, c: Expense, me: String, showGroup: Boolean = false, onIgnore: (() -> Unit)? = null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val all by Repo.expenses.collectAsStateWithLifecycle()
+    val live = all[group.id].orEmpty().filter { !it.deleted }
+    val book = remember(live, group.simplify) { Pairs(live, group.simplify) }
+    val byId = live.associateBy { it.id }
+    val from = c.paid.keys.firstOrNull().orEmpty()
+    val to = c.shares.keys.firstOrNull().orEmpty()
+    val mine = to == me
+    WarmCard(padding = 14.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(group.info[if (mine) from else to]?.name ?: "?", if (mine) from else to, 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (mine) "${group.name(from, me)} says they paid you" else "Waiting for ${group.name(to, me)} to confirm",
+                    style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text((if (showGroup) "${group.name} · " else "") + Fmt.relative(c.createdAt), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(10.dp))
+            Text(Money.format(c.amount), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        }
+        // What confirming would do, in words.
+        val st = book.state(from, to)
+        val alloc = com.splitfree.money.Ledger.allocate(c.amount, st.aOwes, st.aDues)
+        val lines = describeAlloc(alloc, st.aOwes, byId, if (mine) "%s is extra: you will owe it back." else "%s is extra: they will owe it back.")
+        if (lines.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (mine) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                SecondaryButton("Reject", null, { Repo.rejectPayment(group, c); toast(context, "Payment rejected") }, Modifier.weight(1f))
+                PrimaryButton("Confirm", null, {
+                    Repo.confirmPayment(group, c, alloc.amounts); Haptics.success(context); toast(context, "Payment confirmed")
+                }, Modifier.weight(1f))
+            }
+            if (onIgnore != null) {
+                Spacer(Modifier.height(10.dp))
+                TertiaryButton("Ignore for now", onIgnore, Modifier.fillMaxWidth())
+            }
+        } else TertiaryButton("Cancel this payment", { Repo.rejectPayment(group, c); toast(context, "Payment cancelled") }, Modifier.fillMaxWidth())
+    }
 }
 
 /** Who, which way, how much, with a plain-words preview of what it will settle. */

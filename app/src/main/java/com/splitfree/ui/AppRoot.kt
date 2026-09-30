@@ -30,6 +30,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.only
@@ -153,6 +155,29 @@ fun AppRoot(nav: NavViewModel) {
                 InviteCard(inv, onIgnore = { nav.showInvites.value = false }) { gid -> nav.push(Screen.Group(gid)) }
             }
         }
+
+        // Payments others say they made to you: a pop-up the first time, then they wait under Activity.
+        val groupsNow by Repo.groups.collectAsStateWithLifecycle()
+        val expensesNow by Repo.expenses.collectAsStateWithLifecycle()
+        val myUid = Auth.uid
+        val claims = groupsNow.flatMap { g -> expensesNow[g.id].orEmpty().filter { it.pending && myUid in it.shares.keys }.map { g to it } }
+        var showClaims by remember { mutableStateOf(false) }
+        LaunchedEffect(claims.map { it.second.id }) {
+            val prefs = context.getSharedPreferences("invites", android.content.Context.MODE_PRIVATE)
+            val seen = prefs.getStringSet("claims_popped", emptySet()).orEmpty()
+            val fresh = claims.map { it.second.id }.filter { it !in seen }
+            if (fresh.isNotEmpty()) { prefs.edit().putStringSet("claims_popped", seen + fresh).apply(); showClaims = true }
+            if (claims.isEmpty()) showClaims = false
+        }
+        if (showClaims && claims.isNotEmpty() && !showInvites && myUid != null)
+            WarmDialog(if (claims.size > 1) "Payments to confirm" else "Payment to confirm", onDismiss = { showClaims = false }) {
+                Column(Modifier.heightIn(max = 460.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                    claims.forEachIndexed { i, (g, c) ->
+                        if (i > 0) Spacer(Modifier.height(10.dp))
+                        ClaimCard(g, c, myUid, showGroup = true, onIgnore = { showClaims = false })
+                    }
+                }
+            }
 
         if (user != null) update?.let { UpdateDialog(it) }
 
