@@ -366,10 +366,11 @@ fun ActionPill(text: String, onClick: () -> Unit, filled: Boolean = false, icon:
     // soft: a tinted pill with no outline, for an action that stands apart from its neighbours
     val bg by animateColorAsState(if (filled) scheme.primary else if (soft) scheme.primary.copy(alpha = 0.12f) else scheme.surface, tween(200), label = "pill")
     val fg by animateColorAsState(if (filled) scheme.onPrimary else if (soft) scheme.primary else scheme.onSurface, tween(200), label = "pillText")
+    val edge by animateColorAsState(if (filled) scheme.primary else if (soft) Color.Transparent else scheme.outline, tween(200), label = "pillEdge")
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.pressScale(src).clip(shape).background(bg, shape)
-            .border(1.dp, if (filled) scheme.primary else if (soft) Color.Transparent else scheme.outline, shape)
+            .border(1.dp, edge, shape)
             .clickable(interactionSource = src, indication = null) { Haptics.tick(ctx); onClick() }.padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         if (icon != null) {

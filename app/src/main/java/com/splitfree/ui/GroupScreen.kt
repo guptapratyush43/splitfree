@@ -50,6 +50,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.rounded.Payments
@@ -119,19 +120,24 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
     val me = Auth.uid!!
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val expenses = all[gid].orEmpty().filter { !it.deleted }
+    val raw = all[gid].orEmpty()
+    // Worked out once per change in the data, never again just because a tab moved.
+    val expenses = remember(raw) { raw.filter { !it.deleted } }
+    val listed = remember(expenses) { expenses.filter { !it.settlement } }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var remind by remember { mutableStateOf<Debt?>(null) }
     val pager = rememberPagerState(initialPage = startTab.coerceIn(0, tabNames.size - 1)) { tabNames.size }
 
-    val items = expenses.map { it.flows }
-    val nets = Balances.nets(items)
-    val debts = if (group.simplify) Balances.settle(nets) else Balances.pairwise(items)
-    val mine = debts.filter { it.from == me || it.to == me }
+    val nets = remember(expenses) { Balances.nets(expenses.map { it.flows }) }
+    val debts = remember(expenses, group.simplify) {
+        if (group.simplify) Balances.settle(nets) else Balances.pairwise(expenses.map { it.flows })
+    }
     val myNet = nets[me] ?: 0
     // Payments someone says they made to me, waiting for my yes.
-    val toConfirm = all[gid].orEmpty().count { it.pending && me in it.shares.keys }
+    val toConfirm = remember(raw) { raw.count { it.pending && me in it.shares.keys } }
+    val onRemind = remember { { d: Debt -> remind = d } }
+    val onQuery = remember { { q: String -> query = q } }
 
     Box(Modifier.fillMaxSize()) {
         // The page content is what the floating glass button bends and blurs.
@@ -139,18 +145,29 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
         Column(Modifier.fillMaxSize().glassSource(glassLayer)) {
             // ---- banner: place photo when found, the group's colour otherwise ----
             val hasPhoto = group.cover.isNotBlank()
-            Box(Modifier.fillMaxWidth().height(if (hasPhoto) 190.dp else 150.dp).background(groupTint(group.id).copy(alpha = 0.16f))) {
+            Box(Modifier.fillMaxWidth().height(if (hasPhoto) 224.dp else 150.dp)
+                .then(if (hasPhoto) Modifier else Modifier.background(groupTint(group.id).copy(alpha = 0.16f)))) {
                 if (hasPhoto) {
-                    coil.compose.AsyncImage(
-                        model = group.cover, contentDescription = null,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize()
-                    )
-                    // Soft shade at the bottom keeps the title readable on any photo.
-                    Box(Modifier.fillMaxSize().background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                            0f to Color.Black.copy(alpha = 0.15f), 0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.6f)
+                    // The photo and its shade dissolve into the cream background at the bottom: no hard edge.
+                    Box(Modifier.fillMaxSize()
+                        .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(
+                                0f to Color.Black, 0.62f to Color.Black, 1f to Color.Transparent
+                            ), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
+                        }) {
+                        coil.compose.AsyncImage(
+                            model = group.cover, contentDescription = null,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize()
                         )
-                    ))
+                        // Soft shade behind the title keeps it readable on any photo.
+                        Box(Modifier.fillMaxSize().background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                0f to Color.Black.copy(alpha = 0.18f), 0.35f to Color.Transparent, 0.72f to Color.Black.copy(alpha = 0.5f), 1f to Color.Black.copy(alpha = 0.2f)
+                            )
+                        ))
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
                     GlassCircle(Icons.AutoMirrored.Rounded.ArrowBack, "Back", hasPhoto) { nav.pop() }
@@ -163,10 +180,11 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                     GlassCircle(Icons.Rounded.Settings, "Group settings", hasPhoto) { nav.push(Screen.GroupSettings(gid)) }
                 }
                 Text(
-                    group.name, style = MaterialTheme.typography.displaySmall,
+                    group.name, style = if (hasPhoto) MaterialTheme.typography.displaySmall.copy(shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.45f), androidx.compose.ui.geometry.Offset(0f, 3f), 12f))
+                        else MaterialTheme.typography.displaySmall,
                     color = if (hasPhoto) Color.White else MaterialTheme.colorScheme.onBackground,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = 16.dp)
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = if (hasPhoto) 44.dp else 16.dp)
                 )
             }
 
@@ -180,54 +198,25 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                     },
                     style = MaterialTheme.typography.titleMedium, color = moneyColor(myNet)
                 )
-                mine.take(2).forEach { d ->
-                    Text(
-                        buildAnnotatedString {
-                            append(if (d.to == me) "${group.name(d.from, me)} owes you " else "You owe ${group.name(d.to, me)} ")
-                            withStyle(SpanStyle(color = moneyColor(if (d.to == me) 1 else -1))) { append(Money.format(d.amount)) }
-                        },
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (mine.size > 2) Text("Plus ${mine.size - 2} more balances", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             // ---- tabs: tap or swipe between them ----
-            val chips = androidx.compose.foundation.lazy.rememberLazyListState()
-            var lastPage by remember { mutableStateOf(pager.settledPage) }
-            LaunchedEffect(pager.settledPage) {
-                if (pager.settledPage != lastPage) { Haptics.tick(context); lastPage = pager.settledPage }
-                chips.animateScrollToItem((pager.settledPage - 1).coerceAtLeast(0))
-            }
-            androidx.compose.foundation.lazy.LazyRow(
-                state = chips,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(tabNames.size) { i ->
-                    // "Pay back" is an action rather than a view, so it wears a soft tint instead of an outline.
-                    Box {
-                        ActionPill(tabNames[i], { scope.launch { pager.animateScrollToPage(i) } }, filled = pager.currentPage == i, soft = i == PAY_BACK)
-                        if (i == PAY_BACK && toConfirm > 0) AlertDot(Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = (-2).dp))
-                    }
-                }
-            }
+            TabPills(pager, toConfirm)
             HairLine()
 
-            HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
+            // All four pages are built when the group opens, so none is built halfway through a swipe.
+            HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = tabNames.size - 1) { page ->
                 when (page) {
                     // Payments marked as settled live in Balances and Activity, not in the expense list.
-                    0 -> ExpensesPage(nav, group, expenses.filter { !it.settlement }, searching, query) { query = it }
-                    1 -> BalancesPage(nav, group, nets, debts, me) { remind = it }
-                    2 -> TotalsPage(group, all[gid].orEmpty(), me)
-                    else -> PayBackPage(group, all[gid].orEmpty(), expenses, me) { nav.push(Screen.Detail(gid, it)) }
+                    0 -> ExpensesPage(nav, group, listed, searching, query, onQuery)
+                    1 -> BalancesPage(nav, group, nets, debts, me, onRemind)
+                    2 -> TotalsPage(group, raw, me)
+                    else -> PayBackPage(group, raw, expenses, me) { nav.push(Screen.Detail(gid, it)) }
                 }
             }
         }
         androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides glassLayer) {
-            if (pager.currentPage == 0) FloatingAdd("Add expense", Icons.Rounded.ReceiptLong, { nav.push(Screen.Editor(gid, null)) },
-                Modifier.align(Alignment.BottomEnd).padding(20.dp))
+            AddExpenseButton(pager, Modifier.align(Alignment.BottomEnd).padding(20.dp)) { nav.push(Screen.Editor(gid, null)) }
         }
     }
 
@@ -1053,5 +1042,53 @@ fun ExpenseRow(group: Group, e: Expense, showGroup: Boolean = false, showDate: B
                 }
             }
         }
+    }
+}
+
+/** The four tab pills. Only this row follows the pager, so swiping never rebuilds the pages. */
+@Composable
+private fun TabPills(pager: androidx.compose.foundation.pager.PagerState, toConfirm: Int) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val chips = androidx.compose.foundation.lazy.rememberLazyListState()
+    var lastPage by remember { mutableStateOf(pager.settledPage) }
+    LaunchedEffect(pager.settledPage) {
+        if (pager.settledPage != lastPage) { Haptics.tick(context); lastPage = pager.settledPage }
+        chips.animateScrollToItem((pager.settledPage - 1).coerceAtLeast(0))
+    }
+    // The pill lights up for the page you're heading to, not flickering while a swipe is undecided.
+    val selected by remember { androidx.compose.runtime.derivedStateOf { pager.targetPage } }
+    androidx.compose.foundation.lazy.LazyRow(
+        state = chips,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        items(tabNames.size) { i ->
+            // "Pay back" is an action rather than a view, so it wears a soft tint instead of an outline.
+            Box {
+                ActionPill(tabNames[i], { scope.launch { pager.animateScrollToPage(i, animationSpec = androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 400f)) } },
+                    filled = selected == i, soft = i == PAY_BACK)
+                if (i == PAY_BACK && toConfirm > 0) AlertDot(Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = (-2).dp))
+            }
+        }
+    }
+}
+
+/**
+ * "Add expense" stays put and fades and shrinks with the swipe away from Expenses,
+ * instead of vanishing and popping back. It is only drawn differently, never rebuilt.
+ */
+@Composable
+private fun AddExpenseButton(pager: androidx.compose.foundation.pager.PagerState, modifier: Modifier, onClick: () -> Unit) {
+    val onExpenses by remember { androidx.compose.runtime.derivedStateOf { pager.currentPage == 0 && kotlin.math.abs(pager.currentPageOffsetFraction) < 0.5f } }
+    Box(modifier.graphicsLayer {
+        val f = (1f - kotlin.math.abs(pager.currentPage + pager.currentPageOffsetFraction) * 1.6f).coerceIn(0f, 1f)
+        alpha = f
+        val k = 0.85f + 0.15f * f
+        scaleX = k; scaleY = k
+        translationY = (1f - f) * 24.dp.toPx()
+    }) {
+        FloatingAdd("Add expense", Icons.Rounded.ReceiptLong, { if (onExpenses) onClick() })
     }
 }
