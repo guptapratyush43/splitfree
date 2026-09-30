@@ -743,7 +743,7 @@ private fun ActivityTab(nav: NavViewModel) {
                 Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null).padding(horizontal = 20.dp, vertical = 5.dp)) {
                     WarmCard(padding = 14.dp, onClick = {
                         if (a.expenseId != null && Repo.expenses.value[gid].orEmpty().any { it.id == a.expenseId }) nav.push(Screen.Detail(gid, a.expenseId))
-                        else nav.push(Screen.Group(gid))
+                        else nav.push(Screen.Thread(gid, a.thread ?: a.id))
                     }) {
                         Row(verticalAlignment = Alignment.Top) {
                             Avatar(g?.info?.get(a.actor)?.name ?: "?", a.actor, 46.dp)

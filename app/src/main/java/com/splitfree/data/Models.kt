@@ -89,7 +89,8 @@ data class Expense(
 }
 
 /** One line of group history. [people] are the others involved: payers, those it was split with, a payment's receiver. */
-data class Activity(val id: String, val actor: String, val text: String, val at: Long, val expenseId: String?, val people: List<String> = emptyList())
+data class Activity(val id: String, val actor: String, val text: String, val at: Long, val expenseId: String?, val people: List<String> = emptyList(),
+                    val thread: String? = null)
 
 data class Invite(
     val id: String, val groupId: String, val groupName: String,

@@ -408,6 +408,36 @@ object Repo {
         notify(g, e.involved, "New comment in ${g.name}", "${Auth.name} commented on $title: $text", e.id, screen = "comments")
     }
 
+    fun activityComments(gid: String, aid: String): Flow<List<Comment>> = callbackFlow {
+        val reg = group(gid).collection("activity").document(aid).collection("comments").orderBy("at")
+            .addSnapshotListener { s, _ ->
+                trySend(s?.documents.orEmpty().map {
+                    Comment(it.id, it.getString("uid").orEmpty(), it.getString("name").orEmpty(), it.getString("text").orEmpty(), it.getLong("at") ?: 0)
+                })
+            }
+        awaitClose { reg.remove() }
+    }
+
+    /**
+     * A comment on an activity that isn't an expense (someone joined, a group was renamed…).
+     * Everyone in the group sees it in Activity and gets a push that opens the same thread.
+     */
+    fun commentOnActivity(g: Group, a: Activity, text: String) {
+        val now = System.currentTimeMillis()
+        val thread = a.thread ?: a.id
+        group(g.id).collection("activity").document(thread).collection("comments").add(
+            mapOf("uid" to Auth.uid, "name" to Auth.name, "text" to text, "at" to now)
+        )
+        val what = a.text.let { if (it.length > 60) it.take(57) + "…" else it }
+        val everyone = g.members.filter { it != Auth.uid }
+        group(g.id).collection("activity").add(mapOf(
+            "actor" to Auth.uid, "text" to "${Auth.name} commented on “$what”", "at" to now, "expenseId" to null,
+            "thread" to thread, "people" to everyone
+        ))
+        com.splitfree.backup.Backup.onDataChanged()
+        notify(g, everyone, "New comment in ${g.name}", "${Auth.name} commented on “$what”: $text", null, screen = "thread:$thread")
+    }
+
     /** The one who owes tells the one they paid: "I've paid, please mark it as settled." Opens the payer's page for them. */
     fun askToSettle(g: Group, lender: String, amount: Long) {
         notify(g, listOf(lender), "Payment to confirm", "${Auth.name} says they paid you ${Money.format(amount)} in ${g.name}. Tap to mark it as settled.",
@@ -437,7 +467,7 @@ object Repo {
                 @Suppress("UNCHECKED_CAST")
                 trySend(s?.documents.orEmpty().map {
                     Activity(it.id, it.getString("actor").orEmpty(), it.getString("text").orEmpty(), it.getLong("at") ?: 0,
-                        it.getString("expenseId"), (it.get("people") as? List<String>).orEmpty())
+                        it.getString("expenseId"), (it.get("people") as? List<String>).orEmpty(), it.getString("thread"))
                 })
             }
         awaitClose { reg.remove() }

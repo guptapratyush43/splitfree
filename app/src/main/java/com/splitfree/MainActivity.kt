@@ -30,6 +30,7 @@ sealed interface Screen {
     data class Member(val groupId: String, val uid: String) : Screen
     data object EditProfile : Screen
     data object Scan : Screen
+    data class Thread(val groupId: String, val activityId: String) : Screen
 }
 
 /** A tiny back stack; the app has no animated transitions by design. */
@@ -99,6 +100,7 @@ class MainActivity : ComponentActivity() {
             screen == "comments" && eid != null -> listOf(Screen.Home, Screen.Group(gid), Screen.Detail(gid, eid, toComments = true))
             screen == "expense" && eid != null -> listOf(Screen.Home, Screen.Group(gid), Screen.Detail(gid, eid))
             screen == "payback" -> listOf(Screen.Home, Screen.Group(gid, tab = 3))
+            screen?.startsWith("thread:") == true -> listOf(Screen.Home, Screen.Thread(gid, screen.removePrefix("thread:")))
             screen == "member" && me != null -> listOf(Screen.Home, Screen.Group(gid, tab = 1), Screen.Member(gid, me))
             screen?.startsWith("member:") == true -> listOf(Screen.Home, Screen.Group(gid, tab = 1), Screen.Member(gid, screen.removePrefix("member:")))
             else -> listOf(Screen.Home, Screen.Group(gid))

@@ -144,6 +144,7 @@ fun AppRoot(nav: NavViewModel) {
             is Screen.Member -> MemberScreen(nav, s.groupId, s.uid)
             Screen.EditProfile -> EditProfileScreen(nav)
             Screen.Scan -> ScanScreen(nav)
+            is Screen.Thread -> ActivityThreadScreen(nav, s.groupId, s.activityId)
         } } } } }
 
         // Opened from an invite notification: answer it right here.

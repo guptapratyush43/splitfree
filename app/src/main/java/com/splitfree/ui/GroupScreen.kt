@@ -331,8 +331,8 @@ private fun BalancesPage(nav: NavViewModel, group: Group, nets: Map<String, Long
     var sort by rememberSaveable { mutableStateOf(BalanceSort.GETS_BACK) }
     val others = (group.members + nets.keys).distinct().filter { it != me }.let { list ->
         when (sort) {
-            BalanceSort.GETS_BACK -> list.sortedWith(compareByDescending<String> { nets[it] ?: 0 }.thenBy { group.name(it, me).lowercase() })
-            BalanceSort.OWES -> list.sortedWith(compareBy<String> { nets[it] ?: 0 }.thenBy { group.name(it, me).lowercase() })
+            BalanceSort.GETS_BACK -> list.sortedWith(compareByDescending<String> { nets[it] ?: 0L }.thenBy { group.name(it, me).lowercase() })
+            BalanceSort.OWES -> list.sortedWith(compareBy<String> { nets[it] ?: 0L }.thenBy { group.name(it, me).lowercase() })
             BalanceSort.NAME -> list.sortedBy { group.name(it, me).lowercase() }
         }
     }

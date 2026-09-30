@@ -1,5 +1,7 @@
 package com.splitfree.ui
 
+import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -349,3 +351,87 @@ fun DeletedScreen(nav: NavViewModel, gid: String) {
 
 /** Part of [from]'s share of an expense paid out of the advance [to] was holding; [left] is what remains of it. */
 private data class AdvanceUse(val from: String, val to: String, val used: Long, val advances: List<com.splitfree.data.Expense>, val left: Long)
+
+/**
+ * An activity that isn't an expense (someone joined, a group was renamed…): what happened,
+ * and a comment thread everyone in the group can join, just like an expense's comments.
+ */
+@Composable
+fun ActivityThreadScreen(nav: NavViewModel, gid: String, aid: String) {
+    val groups by Repo.groups.collectAsStateWithLifecycle()
+    val group = groups.firstOrNull { it.id == gid }
+    if (group == null) {
+        Column(Modifier.fillMaxSize()) { TopBar("Activity", onBack = { nav.pop() }); Footnote("This group isn't available.") }
+        return
+    }
+    val me = Auth.uid!!
+    val actFlow = remember(gid) { Repo.activity(gid) }
+    val acts by actFlow.collectAsState(initial = null)
+    val a = acts?.firstOrNull { it.id == aid }
+    val commentsFlow = remember(gid, aid) { Repo.activityComments(gid, aid) }
+    val comments by commentsFlow.collectAsState(initial = emptyList())
+    var draft by remember { mutableStateOf("") }
+    val list = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(comments.size) { if (comments.isNotEmpty()) list.animateScrollToItem(comments.size) }
+
+    Column(Modifier.fillMaxSize().imePadding()) {
+        TopBar("Activity", onBack = { nav.pop() }) {
+            IconButton(onClick = { nav.push(Screen.Group(gid)) }) {
+                Icon(Icons.Rounded.Groups, "Open ${group.name}", tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(28.dp))
+            }
+        }
+        LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp)) {
+            item {
+                WarmCard(padding = 20.dp) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        if (a != null) Avatar(group.info[a.actor]?.name ?: "?", a.actor, 52.dp)
+                        else IconBubble(Icons.Rounded.Timeline, size = 52.dp, iconSize = 24.dp)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                when {
+                                    a == null && acts == null -> "Loading…"
+                                    a == null -> "This activity is no longer in the recent list"
+                                    a.actor == me -> a.text.replaceFirst(Auth.name, "You")
+                                    else -> a.text
+                                },
+                                style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(group.name + (a?.let { " · " + settledAt(it.at) } ?: ""), style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                SectionLabel("Comments")
+                if (comments.isEmpty()) Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
+                    IconBubble(Icons.Rounded.ChatBubbleOutline, size = 60.dp, iconSize = 28.dp)
+                    Spacer(Modifier.height(12.dp))
+                    Text("No comments yet", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Everyone in ${group.name} is notified of new comments.", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+            items(comments, key = { it.id }) { c ->
+                Row(Modifier.padding(vertical = 6.dp)) {
+                    Avatar(c.name, c.uid, 32.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text((if (c.uid == me) "You" else c.name) + " · " + Fmt.relative(c.at), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(c.text, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)) {
+            Field(draft, { draft = it.take(500) }, Modifier.weight(1f), placeholder = "Add a comment")
+            Spacer(Modifier.width(8.dp))
+            val ready = draft.isNotBlank() && a != null
+            IconButton(onClick = { a?.let { Repo.commentOnActivity(group, it, draft.trim()) }; draft = "" }, enabled = ready) {
+                Icon(Icons.AutoMirrored.Rounded.Send, "Send", tint = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+            }
+        }
+    }
+}
