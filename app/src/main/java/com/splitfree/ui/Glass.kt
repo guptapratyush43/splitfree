@@ -18,6 +18,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -59,7 +60,9 @@ private val canBlur = Build.VERSION.SDK_INT >= 31
 fun Modifier.gloss(shape: Shape, strength: Float = 1f) = this
     .drawWithContent {
         drawContent()
-        drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.22f * strength), 0.5f to Color.White.copy(alpha = 0.03f * strength), 1f to Color.Transparent))
+        // Painted inside the element's own outline, so rounded corners stay rounded.
+        drawOutline(shape.createOutline(size, layoutDirection, this),
+            Brush.verticalGradient(0f to Color.White.copy(alpha = 0.22f * strength), 0.5f to Color.White.copy(alpha = 0.03f * strength), 1f to Color.Transparent))
     }
     .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.6f * strength), Color.White.copy(alpha = 0.05f * strength))), shape)
 

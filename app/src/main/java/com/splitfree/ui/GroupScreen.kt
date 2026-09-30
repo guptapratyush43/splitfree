@@ -145,7 +145,7 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
         Column(Modifier.fillMaxSize().glassSource(glassLayer)) {
             // ---- banner: place photo when found, the group's colour otherwise ----
             val hasPhoto = group.cover.isNotBlank()
-            Box(Modifier.fillMaxWidth().height(if (hasPhoto) 224.dp else 150.dp)
+            Box(Modifier.fillMaxWidth().height(if (hasPhoto) 206.dp else 150.dp)
                 .then(if (hasPhoto) Modifier else Modifier.background(groupTint(group.id).copy(alpha = 0.16f)))) {
                 if (hasPhoto) {
                     // The photo and its shade dissolve into the cream background at the bottom: no hard edge.
@@ -154,7 +154,7 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                         .drawWithContent {
                             drawContent()
                             drawRect(androidx.compose.ui.graphics.Brush.verticalGradient(
-                                0f to Color.Black, 0.62f to Color.Black, 1f to Color.Transparent
+                                0f to Color.Black, 0.8f to Color.Black, 1f to Color.Transparent
                             ), blendMode = androidx.compose.ui.graphics.BlendMode.DstIn)
                         }) {
                         coil.compose.AsyncImage(
@@ -164,7 +164,7 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                         // Soft shade behind the title keeps it readable on any photo.
                         Box(Modifier.fillMaxSize().background(
                             androidx.compose.ui.graphics.Brush.verticalGradient(
-                                0f to Color.Black.copy(alpha = 0.18f), 0.35f to Color.Transparent, 0.72f to Color.Black.copy(alpha = 0.5f), 1f to Color.Black.copy(alpha = 0.2f)
+                                0f to Color.Black.copy(alpha = 0.18f), 0.4f to Color.Transparent, 0.8f to Color.Black.copy(alpha = 0.5f), 1f to Color.Black.copy(alpha = 0.3f)
                             )
                         ))
                     }
@@ -184,7 +184,7 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                         else MaterialTheme.typography.displaySmall,
                     color = if (hasPhoto) Color.White else MaterialTheme.colorScheme.onBackground,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = if (hasPhoto) 44.dp else 16.dp)
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, end = 20.dp, bottom = if (hasPhoto) 30.dp else 16.dp)
                 )
             }
 

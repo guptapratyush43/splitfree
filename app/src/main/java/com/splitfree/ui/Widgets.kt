@@ -413,7 +413,7 @@ fun FloatingAdd(text: String, icon: ImageVector, onClick: () -> Unit, modifier: 
  * at a time half a beat apart. The element itself never changes size.
  */
 @Composable
-fun Modifier.rippleRings(color: Color, spread: Dp = 14.dp, period: Int = 2200): Modifier {
+fun Modifier.rippleRings(color: Color, spread: Dp = 14.dp, period: Int = 2200, soft: Boolean = false): Modifier {
     val loop = androidx.compose.animation.core.rememberInfiniteTransition(label = "rings")
     val k by loop.animateFloat(0f, 1f,
         androidx.compose.animation.core.infiniteRepeatable(tween(period, easing = androidx.compose.animation.core.LinearEasing)), label = "k")
@@ -422,7 +422,8 @@ fun Modifier.rippleRings(color: Color, spread: Dp = 14.dp, period: Int = 2200): 
             val p = (k + phase) % 1f
             val grow = spread.toPx() * androidx.compose.animation.core.FastOutSlowInEasing.transform(p)
             drawRoundRect(
-                color.copy(alpha = 0.5f * (1f - p)),
+                // soft: the ring is nearly gone by the time it reaches its widest, so a tight edge never cuts it visibly.
+                color.copy(alpha = if (soft) 0.55f * (1f - p) * (1f - p) * (1f - p) else 0.5f * (1f - p)),
                 topLeft = androidx.compose.ui.geometry.Offset(-grow, -grow),
                 size = androidx.compose.ui.geometry.Size(size.width + 2 * grow, size.height + 2 * grow),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.minDimension / 2 + grow),
@@ -457,9 +458,9 @@ fun SortCapsule(label: String, onClick: () -> Unit) {
 
 /** Small red dot with rings rippling out of it: something here needs you. */
 @Composable
-fun AlertDot(modifier: Modifier = Modifier) {
+fun AlertDot(modifier: Modifier = Modifier, soft: Boolean = false) {
     val red = MaterialTheme.colorScheme.error
-    Box(modifier.size(8.dp).rippleRings(red, spread = 8.dp, period = 1800).background(red, CircleShape))
+    Box(modifier.size(8.dp).rippleRings(red, spread = if (soft) 7.dp else 8.dp, period = 1800, soft = soft).background(red, CircleShape))
 }
 
 /** Room the floating tab bar takes at the bottom of the Home tabs; lists pad by this much. */
@@ -497,8 +498,8 @@ fun BottomTabs(tabs: List<Pair<String, ImageVector>>, selected: Int, dots: Set<I
                 ) {
                     Box(Modifier.graphicsLayer { translationY = -2.dp.toPx() * on; val s = 1f + 0.08f * on; scaleX = s; scaleY = s }) {
                         Icon(icon, label, tint = tint, modifier = Modifier.size(26.dp))
-                        androidx.compose.animation.AnimatedVisibility(i in dots, Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-3).dp),
-                            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) { AlertDot() }
+                        androidx.compose.animation.AnimatedVisibility(i in dots, Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-1).dp),
+                            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) { AlertDot(soft = true) }
                     }
                     Spacer(Modifier.height(2.dp))
                     Text(label, style = MaterialTheme.typography.labelSmall, color = tint)
