@@ -341,6 +341,8 @@ object Repo {
             pending = true
         )
         group(g.id).collection("expenses").document(e.id).set(e.toMap())
+        val toName = g.info[to]?.name ?: "someone"
+        log(g.id, "${Auth.name} recorded paying $toName ${Money.format(amount)} · waiting for confirmation", null, listOf(to))
         notify(g, listOf(to), "Payment to confirm", "${Auth.name} says they paid you ${Money.format(amount)} in ${g.name}. Tap to confirm.",
             null, force = true, screen = "payback")
     }

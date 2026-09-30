@@ -676,7 +676,8 @@ private fun ActivityTab(nav: NavViewModel) {
     val claims = groups.flatMap { g -> allExpenses[g.id].orEmpty().filter { it.pending && Auth.uid in it.shares.keys }.map { g to it } }
     val anyPending = invites.isNotEmpty() || claims.isNotEmpty()
     var showInv by rememberSaveable { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(anyPending) { if (!anyPending) showInv = false }
+    val pendingCount = invites.size + claims.size
+    androidx.compose.runtime.LaunchedEffect(pendingCount) { showInv = pendingCount > 0 }
     val ids = groups.map { it.id }
     val flow = remember(ids) {
         if (ids.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyList())
