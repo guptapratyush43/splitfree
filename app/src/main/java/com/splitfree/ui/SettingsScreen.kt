@@ -73,7 +73,7 @@ fun AccountTab(nav: NavViewModel) {
     val backupOn by Backup.enabled.collectAsStateWithLifecycle()
     var confirm by remember { mutableStateOf<String?>(null) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = TabBarSpace)) {
         Text("Account", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 16.dp))
         val meNow by Repo.me.collectAsStateWithLifecycle()

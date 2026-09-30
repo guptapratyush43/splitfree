@@ -9,14 +9,14 @@ plugins {
 
 android {
     namespace = "com.splitfree"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.splitfree"
         minSdk = 26
         targetSdk = 34
-        versionCode = 35
-        versionName = "4.4"
+        versionCode = 37
+        versionName = "4.6"
         // Cloudflare Worker that sends pushes and does membership changes.
         buildConfigField("String", "API_URL", "\"https://split-free.split-free-worker.workers.dev\"")
     }
@@ -52,13 +52,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+
+    // Lint's lifecycle checks crash under Kotlin 2.2; the build itself is fine.
+    lint { checkReleaseBuilds = false }
 
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
@@ -69,7 +75,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.5")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.5")
 
-    val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
+    val composeBom = platform("androidx.compose:compose-bom:2025.10.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -92,6 +98,9 @@ dependencies {
 
     // Group banner photos.
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Liquid glass on the floating controls (blur + lens refraction, Android 12/13+).
+    implementation("io.github.kyant0:backdrop:1.0.0")
 
     // Reads photo orientation for the profile cropper.
     implementation("androidx.exifinterface:exifinterface:1.3.7")

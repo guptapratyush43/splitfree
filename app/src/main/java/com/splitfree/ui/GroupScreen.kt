@@ -134,7 +134,9 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
     val toConfirm = all[gid].orEmpty().count { it.pending && me in it.shares.keys }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
+        // The page content is what the floating glass button bends and blurs.
+        val glassLayer = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+        Column(Modifier.fillMaxSize().glassSource(glassLayer)) {
             // ---- banner: place photo when found, the group's colour otherwise ----
             val hasPhoto = group.cover.isNotBlank()
             Box(Modifier.fillMaxWidth().height(if (hasPhoto) 190.dp else 150.dp).background(groupTint(group.id).copy(alpha = 0.16f))) {
@@ -223,8 +225,10 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                 }
             }
         }
-        if (pager.currentPage == 0) FloatingAdd("Add expense", Icons.Rounded.ReceiptLong, { nav.push(Screen.Editor(gid, null)) },
-            Modifier.align(Alignment.BottomEnd).padding(20.dp))
+        androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides glassLayer) {
+            if (pager.currentPage == 0) FloatingAdd("Add expense", Icons.Rounded.ReceiptLong, { nav.push(Screen.Editor(gid, null)) },
+                Modifier.align(Alignment.BottomEnd).padding(20.dp))
+        }
     }
 
     remind?.let { d ->
@@ -444,7 +448,8 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     var settlePicked by remember { mutableStateOf(false) }
     val pickedTotal = picked.sumOf { owedToMe[it] ?: 0L }
     Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize()) {
+    val glassLayer = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    Column(Modifier.fillMaxSize().glassSource(glassLayer)) {
         TopBar(group.name(uid, me).let { if (it == "You") "Your balance" else it }, onBack = { nav.pop() })
         LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 130.dp)) {
             item {
@@ -453,10 +458,9 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                     Spacer(Modifier.height(14.dp))
                     Text(group.info[uid]?.name ?: "Someone", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        when { n > 0 -> "Gets back ${Money.format(n)} in total"; n < 0 -> "Owes ${Money.format(-n)} in total"; else -> "All settled up" },
-                        style = MaterialTheme.typography.titleMedium, color = moneyColor(n)
-                    )
+                    // The total counts up to its value.
+                    if (n == 0L) Text("All settled up", style = MaterialTheme.typography.titleMedium, color = moneyColor(n))
+                    else CountingMoney(kotlin.math.abs(n), MaterialTheme.typography.titleMedium, moneyColor(n)) { if (n > 0) "Gets back $it in total" else "Owes $it in total" }
                 }
                 Spacer(Modifier.height(10.dp))
                 if (debts.any { it.to != me && it.from == me }) {
@@ -536,6 +540,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
         }
     }
     // "Mark as settled" rises from the bottom once anything is picked; the page fades out behind it.
+    androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides glassLayer) {
     androidx.compose.animation.AnimatedVisibility(picked.isNotEmpty(), Modifier.align(Alignment.BottomCenter),
         enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260)) { it / 2 },
         exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)) + androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(200)) { it / 2 }) {
@@ -549,6 +554,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
             if (unsettling) FloatingAdd("Mark as unsettled", Icons.Rounded.Undo, { unsettlePicked = true })
             else FloatingAdd("Mark as settled · ${Money.format(pickedTotal)}", Icons.Rounded.Handshake, { settlePicked = true })
         }
+    }
     }
     }
     if (unsettlePicked) {

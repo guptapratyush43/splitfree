@@ -125,7 +125,7 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
                                 color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             Spacer(Modifier.height(2.dp))
                             // Partly settled: the big figure is what is still open.
-                            Text(Money.format(if (progress?.partly == true) progress.open else e.amount), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+                            CountingMoney(if (progress?.partly == true) progress.open else e.amount, MaterialTheme.typography.headlineMedium, MaterialTheme.colorScheme.primary)
                             if (progress?.partly == true) {
                                 Spacer(Modifier.height(2.dp))
                                 Text("Partly settled · ${Money.format(progress.owed - progress.open)} of ${Money.format(progress.owed)} paid",

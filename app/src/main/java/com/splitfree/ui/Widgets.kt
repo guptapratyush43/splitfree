@@ -284,7 +284,12 @@ fun Toggle(on: Boolean, onChange: (Boolean) -> Unit) {
 @Composable
 fun WarmDialog(title: String, onDismiss: () -> Unit, action: (@Composable () -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
-        WarmCard(padding = 22.dp, background = MaterialTheme.colorScheme.background) {
+        val reduce = LocalReduceMotion.current
+        val pop = remember { androidx.compose.animation.core.Animatable(if (reduce) 1f else 0f) }
+        androidx.compose.runtime.LaunchedEffect(Unit) { pop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 420f)) }
+        WarmCard(padding = 22.dp, background = MaterialTheme.colorScheme.background,
+            modifier = Modifier.graphicsLayer { val s = 0.88f + 0.12f * pop.value; scaleX = s; scaleY = s; alpha = pop.value.coerceIn(0f, 1f) }
+                .gloss(RoundedCornerShape(16.dp), 0.6f)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
                 if (action != null) action()
@@ -375,18 +380,24 @@ fun ActionPill(text: String, onClick: () -> Unit, filled: Boolean = false, icon:
     }
 }
 
-/** Floating "Add expense" button, bottom-right like Splitwise, in the app's own style. */
+/** Floating action button: accent-tinted liquid glass that springs in when it appears. */
 @Composable
 fun FloatingAdd(text: String, icon: ImageVector, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     val src = remember { MutableInteractionSource() }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val shape = RoundedCornerShape(50)
+    val reduce = LocalReduceMotion.current
+    val pop = remember { androidx.compose.animation.core.Animatable(if (reduce) 1f else 0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { pop.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 380f)) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.pressScale(src)
-            .shadow(10.dp, shape, ambientColor = scheme.primary, spotColor = scheme.primary)
-            .clip(shape).background(scheme.primary, shape).clickable(interactionSource = src, indication = null) { Haptics.press(ctx); onClick() }
+        modifier = modifier
+            .graphicsLayer { val s = 0.6f + 0.4f * pop.value; scaleX = s; scaleY = s; alpha = pop.value.coerceIn(0f, 1f) }
+            .pressScale(src)
+            .shadow(12.dp, shape, ambientColor = scheme.primary, spotColor = scheme.primary)
+            .glass(shape, tint = scheme.primary, blurDp = 3.dp, lensDp = 12.dp)
+            .clickable(interactionSource = src, indication = null) { Haptics.press(ctx); onClick() }
             .padding(horizontal = 22.dp, vertical = 16.dp)
     ) {
         Icon(icon, null, tint = scheme.onPrimary, modifier = Modifier.size(24.dp))
@@ -450,26 +461,46 @@ fun AlertDot(modifier: Modifier = Modifier) {
     Box(modifier.size(8.dp).rippleRings(red, spread = 8.dp, period = 1800).background(red, CircleShape))
 }
 
+/** Room the floating tab bar takes at the bottom of the Home tabs; lists pad by this much. */
+val TabBarSpace = 96.dp
+
+/**
+ * Bottom tabs as a floating glass capsule over the content. A clay pill glides to the
+ * chosen tab and its icon lifts a little; nothing changes size, so it never jitters.
+ */
 @Composable
-fun BottomTabs(tabs: List<Pair<String, ImageVector>>, selected: Int, dots: Set<Int> = emptySet(), onSelect: (Int) -> Unit) {
+fun BottomTabs(tabs: List<Pair<String, ImageVector>>, selected: Int, dots: Set<Int> = emptySet(), modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    Column(Modifier.fillMaxWidth().background(scheme.surface)) {
-        HairLine()
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    val shape = RoundedCornerShape(50)
+    val slide by androidx.compose.animation.core.animateFloatAsState(selected.toFloat(),
+        androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 460f), label = "tabPill")
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier.padding(horizontal = 22.dp, vertical = 12.dp).fillMaxWidth()
+            .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.25f))
+            .glass(shape, blurDp = 8.dp, lensDp = 16.dp)
+            .padding(5.dp)
+    ) {
+        val tabW = maxWidth / tabs.size
+        Box(Modifier.offset { androidx.compose.ui.unit.IntOffset((tabW.toPx() * slide).toInt(), 0) }.width(tabW).height(58.dp)
+            .background(scheme.primary.copy(alpha = 0.16f), shape))
+        Row(Modifier.fillMaxWidth()) {
             tabs.forEachIndexed { i, (label, icon) ->
-                val active = i == selected
+                val on by androidx.compose.animation.core.animateFloatAsState(if (i == selected) 1f else 0f,
+                    androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 520f), label = "tabOn")
+                val tint = androidx.compose.ui.graphics.lerp(scheme.onSurfaceVariant, scheme.primary, on)
                 Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.weight(1f).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (i != selected) Haptics.tick(ctx); onSelect(i) }.padding(vertical = 6.dp)
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.weight(1f).height(58.dp)
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { if (i != selected) Haptics.tick(ctx); onSelect(i) }
                 ) {
-                    Box {
-                        Icon(icon, label, tint = if (active) scheme.primary else scheme.onSurfaceVariant, modifier = Modifier.size(28.dp))
+                    Box(Modifier.graphicsLayer { translationY = -2.dp.toPx() * on; val s = 1f + 0.08f * on; scaleX = s; scaleY = s }) {
+                        Icon(icon, label, tint = tint, modifier = Modifier.size(26.dp))
                         androidx.compose.animation.AnimatedVisibility(i in dots, Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-3).dp),
                             enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut()) { AlertDot() }
                     }
-                    Spacer(Modifier.height(3.dp))
-                    Text(label, style = MaterialTheme.typography.labelSmall, color = if (active) scheme.primary else scheme.onSurfaceVariant)
+                    Spacer(Modifier.height(2.dp))
+                    Text(label, style = MaterialTheme.typography.labelSmall, color = tint)
                 }
             }
         }
@@ -589,7 +620,7 @@ fun Modifier.pressScale(source: MutableInteractionSource, depth: Float = 0.93f):
                 is androidx.compose.foundation.interaction.PressInteraction.Release,
                 is androidx.compose.foundation.interaction.PressInteraction.Cancel -> launch {
                     if (scale.value > depth + 0.01f) scale.animateTo(depth, tween(70))
-                    scale.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 700f))
+                    scale.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.62f, stiffness = 650f))
                 }
             }
         }

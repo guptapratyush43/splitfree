@@ -105,16 +105,25 @@ fun AppRoot(nav: NavViewModel) {
             (known - keys.toSet()).forEach { holder.removeState(it) }
             known.clear(); known.addAll(keys)
         }
+        val reduce = rememberReduceMotion()
         androidx.compose.animation.AnimatedContent(
             targetState = (stack.size - 1) to stack.last(),
             transitionSpec = {
-                // New screen fades in over a clean background; the old one leaves at once, so nothing overlaps.
-                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) togetherWith
-                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.snap()))
+                // Going deeper, the new screen glides in from the right and settles from slightly small;
+                // going back, it comes from the left. The old screen fades out quickly, so nothing overlaps.
+                // Only position, scale and opacity move (no relayout), with springs that never wobble.
+                val deeper = targetState.first >= initialState.first
+                val glide = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 1f, stiffness = 520f)
+                val enter = if (reduce) androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(120))
+                    else androidx.compose.animation.slideInHorizontally(glide) { if (deeper) it / 5 else -it / 5 } +
+                        androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 520f), initialScale = 0.96f) +
+                        androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200))
+                (enter togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(if (reduce) 0 else 90)))
                     .using(androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() })
             },
             label = "screen"
-        ) { (index, s) -> holder.SaveableStateProvider("$index:$s") { Box(if (s == Screen.Home) Modifier.fillMaxSize() else topInset) { when (s) {
+        ) { (index, s) -> holder.SaveableStateProvider("$index:$s") { androidx.compose.runtime.CompositionLocalProvider(
+            LocalReduceMotion provides reduce, LocalEntrance provides remember { Entrance() }) { Box(if (s == Screen.Home) Modifier.fillMaxSize() else topInset) { when (s) {
             Screen.Home -> HomeScreen(nav)
             is Screen.Group -> GroupScreen(nav, s.id, s.tab)
             is Screen.GroupSettings -> GroupSettingsScreen(nav, s.id)
@@ -126,7 +135,7 @@ fun AppRoot(nav: NavViewModel) {
             is Screen.Member -> MemberScreen(nav, s.groupId, s.uid)
             Screen.EditProfile -> EditProfileScreen(nav)
             Screen.Scan -> ScanScreen(nav)
-        } } } }
+        } } } } }
 
         // Opened from an invite notification: answer it right here.
         val showInvites by nav.showInvites.collectAsStateWithLifecycle()

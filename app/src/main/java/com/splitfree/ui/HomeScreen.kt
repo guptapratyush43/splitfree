@@ -95,16 +95,22 @@ import kotlinx.coroutines.launch
 fun HomeScreen(nav: NavViewModel) {
     val tab by nav.homeTab.collectAsStateWithLifecycle()
     val tabs = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
-    Column(Modifier.fillMaxSize()) {
+    val glassLayer = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val reduce = LocalReduceMotion.current
+    Box(Modifier.fillMaxSize()) {
         androidx.compose.animation.AnimatedContent(
             targetState = tab.coerceAtMost(2),
             transitionSpec = {
-                androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) togetherWith
-                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.snap())
+                // The next tab glides in from the side it sits on; the old one fades straight out, so nothing overlaps.
+                val dir = if (targetState > initialState) 1 else -1
+                if (reduce) androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(120)) togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.snap())
+                else (androidx.compose.animation.slideInHorizontally(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 520f)) { dir * it / 6 } +
+                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200))) togetherWith
+                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90))
             },
-            label = "tab", modifier = Modifier.weight(1f)
+            label = "tab", modifier = Modifier.fillMaxSize().glassSource(glassLayer)
         ) { t ->
-            tabs.SaveableStateProvider("tab$t") {
+            tabs.SaveableStateProvider("tab$t") { androidx.compose.runtime.CompositionLocalProvider(LocalEntrance provides remember { Entrance() }) {
                 // Groups draws its mist up under the status bar; the other tabs start below it.
                 val below = Modifier.fillMaxSize().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top))
                 when (t) {
@@ -112,16 +118,19 @@ fun HomeScreen(nav: NavViewModel) {
                     1 -> Box(below) { ActivityTab(nav) }
                     else -> Box(below) { AccountTab(nav) }
                 }
-            }
+            } }
         }
         val invites by Repo.invites.collectAsStateWithLifecycle()
         val groupsForDot by Repo.groups.collectAsStateWithLifecycle()
         val expensesForDot by Repo.expenses.collectAsStateWithLifecycle()
         val claimsWaiting = groupsForDot.any { g -> expensesForDot[g.id].orEmpty().any { it.pending && Auth.uid in it.shares.keys } }
-        BottomTabs(
-            listOf("Groups" to Icons.Rounded.Groups, "Activity" to Icons.Rounded.Timeline, "Account" to Icons.Rounded.AccountCircle),
-            tab.coerceAtMost(2), dots = if (invites.isNotEmpty() || claimsWaiting) setOf(1) else emptySet()
-        ) { nav.homeTab.value = it }
+        androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides glassLayer) {
+            BottomTabs(
+                listOf("Groups" to Icons.Rounded.Groups, "Activity" to Icons.Rounded.Timeline, "Account" to Icons.Rounded.AccountCircle),
+                tab.coerceAtMost(2), dots = if (invites.isNotEmpty() || claimsWaiting) setOf(1) else emptySet(),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) { nav.homeTab.value = it }
+        }
     }
 }
 
@@ -165,11 +174,13 @@ private fun GroupsTab(nav: NavViewModel) {
     }
 
     val list = androidx.compose.foundation.lazy.rememberLazyListState()
+    val groupsLayer = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
     Box(Modifier.fillMaxSize()) {
+      Box(Modifier.fillMaxSize().glassSource(groupsLayer)) {
         // Coloured mist behind the title, reaching up under the status bar; it scrolls away with the list.
         Mist(list)
         LazyColumn(Modifier.fillMaxSize().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)),
-            state = list, contentPadding = PaddingValues(bottom = 110.dp)) {
+            state = list, contentPadding = PaddingValues(bottom = TabBarSpace + 84.dp)) {
             // ---- app bar: search, new group ----
             item {
                 Box(Modifier.fillMaxWidth().height(HeaderHeight)) {
@@ -233,7 +244,10 @@ private fun GroupsTab(nav: NavViewModel) {
             }
         }
 
-        FloatingAdd("New group", Icons.Rounded.GroupAdd, { creating = true }, Modifier.align(Alignment.BottomEnd).padding(20.dp))
+      }
+        androidx.compose.runtime.CompositionLocalProvider(LocalGlass provides groupsLayer) {
+            FloatingAdd("New group", Icons.Rounded.GroupAdd, { creating = true }, Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = TabBarSpace + 4.dp))
+        }
     }
 
     if (creating) NewGroupDialog(onDismiss = { creating = false }, onScan = { creating = false; nav.push(Screen.Scan) }) { id -> creating = false; nav.push(Screen.Group(id)) }
@@ -271,7 +285,7 @@ private fun GroupRow(g: Group, net: Long, hasExpenses: Boolean, debts: List<Debt
     val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val ctx = LocalContext.current
     Box(
-        Modifier.padding(horizontal = 20.dp, vertical = 7.dp).fillMaxWidth().height(156.dp)
+        Modifier.entrance().padding(horizontal = 20.dp, vertical = 7.dp).fillMaxWidth().height(156.dp)
             .pressScale(src).clip(shape)
             .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(groupTint(g.id), groupTint(g.id).copy(alpha = 0.7f))))
             .combinedClickable(interactionSource = src, indication = null,
@@ -687,7 +701,7 @@ private fun ActivityTab(nav: NavViewModel) {
     }
     val items by androidx.compose.runtime.produceState<List<Pair<String, com.splitfree.data.Activity>>?>(null, flow) { flow.collect { value = it } }
     val me = Auth.uid
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = TabBarSpace + 16.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 10.dp, bottom = 6.dp)) {
                 Text("Activity", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground,
