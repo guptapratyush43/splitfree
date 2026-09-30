@@ -66,7 +66,12 @@ data class Expense(
     val settlement: Boolean,
     val repeat: Repeat,
     val nextDue: Long,
-    val templateId: String?
+    val templateId: String?,
+    /**
+     * A payment someone says they made, not yet confirmed by the receiver. It is
+     * stored as deleted too, so it counts nowhere (and older app versions ignore it).
+     */
+    val pending: Boolean = false
 ) {
     /** Everyone touched by this expense: payers and people it is split with. */
     val involved: Set<String> get() = paid.keys + shares.keys
@@ -130,12 +135,13 @@ fun DocumentSnapshot.toExpense(groupId: String) = Expense(
     createdBy = getString("createdBy").orEmpty(),
     createdAt = long("createdAt"),
     updatedAt = long("updatedAt"),
-    deleted = getBoolean("deleted") ?: false,
+    deleted = (getBoolean("deleted") ?: false) || (getBoolean("pending") ?: false),
     deletedAt = long("deletedAt"),
     settlement = getBoolean("settlement") ?: false,
     repeat = runCatching { Repeat.valueOf(getString("repeat") ?: "NONE") }.getOrDefault(Repeat.NONE),
     nextDue = long("nextDue"),
-    templateId = getString("templateId")
+    templateId = getString("templateId"),
+    pending = getBoolean("pending") ?: false
 )
 
 fun Expense.toMap(): Map<String, Any?> = mapOf(
@@ -143,5 +149,5 @@ fun Expense.toMap(): Map<String, Any?> = mapOf(
     "paid" to paid, "shares" to shares, "mode" to mode, "inputs" to inputs, "payerInputs" to payerInputs,
     "createdBy" to createdBy, "createdAt" to createdAt, "updatedAt" to updatedAt,
     "deleted" to deleted, "deletedAt" to deletedAt, "settlement" to settlement,
-    "repeat" to repeat.name, "nextDue" to nextDue, "templateId" to templateId
+    "repeat" to repeat.name, "nextDue" to nextDue, "templateId" to templateId, "pending" to pending
 )

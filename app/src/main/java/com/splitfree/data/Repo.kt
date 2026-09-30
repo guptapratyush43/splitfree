@@ -326,13 +326,51 @@ object Repo {
         notify(g, e.involved, if (e.settlement) "Payment restored in ${g.name}" else "Expense restored in ${g.name}", "${Auth.name} restored $label.", e.id)
     }
 
-    /** Records [from] paying [to]. [settles]: the expenses this payment clears, when picked one by one. */
-    fun settle(g: Group, from: String, to: String, amount: Long, date: Long, settles: List<String> = emptyList()) {
+    /**
+     * The payer says "I paid [to] this much". Nothing changes until [to] confirms;
+     * until then it waits on the group's Pay back tab.
+     */
+    fun claimPayment(g: Group, to: String, amount: Long) {
+        val now = System.currentTimeMillis()
+        val me = Auth.uid!!
+        val e = Expense(
+            id = newExpenseId(g.id), groupId = g.id, title = "Payment", note = "", category = Category.GENERAL,
+            amount = amount, date = now, paid = mapOf(me to amount), shares = mapOf(to to amount),
+            mode = "EXACT", inputs = emptyMap(), payerInputs = emptyMap(), createdBy = me, createdAt = now,
+            updatedAt = now, deleted = true, deletedAt = 0, settlement = true, repeat = Repeat.NONE, nextDue = 0, templateId = null,
+            pending = true
+        )
+        group(g.id).collection("expenses").document(e.id).set(e.toMap())
+        notify(g, listOf(to), "Payment to confirm", "${Auth.name} says they paid you ${Money.format(amount)} in ${g.name}. Tap to confirm.",
+            null, force = true, screen = "payback")
+    }
+
+    /** The receiver confirms a claimed payment; [alloc] is how it is spread over expenses. */
+    fun confirmPayment(g: Group, c: Expense, alloc: Map<String, Long>) {
+        val now = System.currentTimeMillis()
+        group(g.id).collection("expenses").document(c.id).update(mapOf(
+            "pending" to false, "deleted" to false, "deletedAt" to 0L, "date" to now, "updatedAt" to now,
+            "inputs" to (if (alloc.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(alloc)))
+        ))
+        val from = c.paid.keys.firstOrNull()?.let { g.info[it]?.name } ?: "Someone"
+        log(g.id, "${Auth.name} confirmed ${Money.format(c.amount)} from $from", c.id, c.involved)
+        notify(g, c.involved, "Payment confirmed in ${g.name}", "${Auth.name} confirmed your payment of ${Money.format(c.amount)}.", null, screen = "member")
+    }
+
+    /** The receiver says no, or the payer takes the claim back. */
+    fun rejectPayment(g: Group, c: Expense) {
+        group(g.id).collection("expenses").document(c.id).delete()
+        if (Auth.uid !in c.paid.keys) notify(g, c.paid.keys, "Payment not confirmed",
+            "${Auth.name} didn't confirm your payment of ${Money.format(c.amount)} in ${g.name}.", null, force = true, screen = "payback")
+    }
+
+    /** Records [from] paying [to]. [alloc]: the paise this payment puts towards each expense. */
+    fun settle(g: Group, from: String, to: String, amount: Long, date: Long, alloc: Map<String, Long> = emptyMap()) {
         val now = System.currentTimeMillis()
         val e = Expense(
             id = newExpenseId(g.id), groupId = g.id, title = "Payment", note = "", category = Category.GENERAL,
             amount = amount, date = date, paid = mapOf(from to amount), shares = mapOf(to to amount),
-            mode = "EXACT", inputs = if (settles.isEmpty()) emptyMap() else mapOf("settles" to settles.joinToString(",")),
+            mode = "EXACT", inputs = if (alloc.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(alloc)),
             payerInputs = emptyMap(), createdBy = Auth.uid!!, createdAt = now,
             updatedAt = now, deleted = false, deletedAt = 0, settlement = true, repeat = Repeat.NONE, nextDue = 0, templateId = null
         )

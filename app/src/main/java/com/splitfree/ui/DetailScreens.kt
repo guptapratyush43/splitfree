@@ -93,8 +93,12 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
             item {
                 // A payment that settled particular expenses shows what it was for, with that expense's icon.
                 val allHere by Repo.expenses.collectAsState()
-                val settledIds = e.inputs["settles"].orEmpty().split(',').filter { it.isNotBlank() }
-                val settled = settledIds.mapNotNull { id -> allHere[gid].orEmpty().firstOrNull { it.id == id } }
+                val liveHere = allHere[gid].orEmpty().filter { !it.deleted }
+                val settledIds = if (e.settlement) com.splitfree.data.Pairs.allocOf(e, liveHere.associateBy { it.id }).keys else emptySet()
+                val settled = settledIds.mapNotNull { id -> liveHere.firstOrNull { it.id == id } }
+                // How much of this expense is still open, from where you stand.
+                val progress = if (e.settlement || e.deleted) null
+                    else remember(liveHere, group.simplify, e.id) { com.splitfree.data.Pairs(liveHere, group.simplify).progress(me)[e.id] }
                 WarmCard(padding = 20.dp) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CategoryBubble(when {
@@ -115,7 +119,17 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurface, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             Spacer(Modifier.height(2.dp))
-                            Text(Money.format(e.amount), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+                            // Partly settled: the big figure is what is still open.
+                            Text(Money.format(if (progress?.partly == true) progress.open else e.amount), style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+                            if (progress?.partly == true) {
+                                Spacer(Modifier.height(2.dp))
+                                Text("Partly settled · ${Money.format(progress.owed - progress.open)} of ${Money.format(progress.owed)} paid",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("Expense total ${Money.format(e.amount)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            } else if (progress?.settled == true) {
+                                Spacer(Modifier.height(2.dp))
+                                Text("Settled", style = MaterialTheme.typography.bodySmall, color = moneyColor(1))
+                            }
                             Spacer(Modifier.height(6.dp))
                             Text(if (e.settlement) "Settled on ${settledAt(e.createdAt)}" else whenText(e.date, e.createdAt),
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -230,7 +244,7 @@ fun DeletedScreen(nav: NavViewModel, gid: String) {
     val groups by Repo.groups.collectAsStateWithLifecycle()
     val all by Repo.expenses.collectAsStateWithLifecycle()
     val group = groups.firstOrNull { it.id == gid } ?: run { nav.pop(); return }
-    val deleted = all[gid].orEmpty().filter { it.deleted }.sortedByDescending { it.deletedAt }
+    val deleted = all[gid].orEmpty().filter { it.deleted && !it.pending }.sortedByDescending { it.deletedAt }
     val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
         TopBar("Recently deleted", onBack = { nav.pop() })

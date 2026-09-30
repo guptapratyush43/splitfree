@@ -131,6 +131,62 @@ object Split {
 
 data class Debt(val from: String, val to: String, val amount: Long)
 
+/** What one person owes another on one expense. */
+data class Due(val id: String, val date: Long, val amount: Long)
+
+/** How a payment is spread over expenses: paise per expense id, plus whatever is left over. */
+data class Alloc(val amounts: Map<String, Long>, val extra: Long)
+
+/**
+ * Per-expense settlement between two people. The totals always come from the
+ * balances; this only decides WHICH expenses count as settled, partly settled
+ * or still open, so the two can never disagree.
+ */
+object Ledger {
+
+    /**
+     * What is still open on each due once [settled] paise in total have been
+     * paid off. Amounts a payment was recorded against ([explicit], oldest
+     * payment first) are honoured first; the rest clears the oldest dues first.
+     * The open amounts always add up to exactly (total dues − settled).
+     */
+    fun remaining(dues: List<Due>, settled: Long, explicit: List<Map<String, Long>>): Map<String, Long> {
+        val open = LinkedHashMap<String, Long>()
+        dues.forEach { open[it.id] = it.amount }
+        var left = settled.coerceIn(0, dues.sumOf { it.amount })
+        for (alloc in explicit) for ((id, amount) in alloc) {
+            val now = open[id] ?: continue
+            val take = minOf(amount, now, left)
+            if (take <= 0) continue
+            open[id] = now - take; left -= take
+        }
+        for (d in dues.sortedWith(compareBy<Due> { it.date }.thenBy { it.id })) {
+            if (left <= 0) break
+            val now = open.getValue(d.id)
+            val take = minOf(now, left)
+            open[d.id] = now - take; left -= take
+        }
+        return open
+    }
+
+    /**
+     * Spreads a lump-sum payment: the smallest open amounts are cleared first,
+     * then the next one is partly settled. Anything beyond all dues is [Alloc.extra].
+     */
+    fun allocate(amount: Long, open: Map<String, Long>, dues: List<Due>): Alloc {
+        var left = amount.coerceAtLeast(0)
+        val out = LinkedHashMap<String, Long>()
+        val order = dues.filter { (open[it.id] ?: 0) > 0 }
+            .sortedWith(compareBy<Due> { open.getValue(it.id) }.thenBy { it.date }.thenBy { it.id })
+        for (d in order) {
+            if (left <= 0) break
+            val take = minOf(left, open.getValue(d.id))
+            out[d.id] = take; left -= take
+        }
+        return Alloc(out, left)
+    }
+}
+
 object Balances {
 
     /** Net per person: positive means they are owed, negative means they owe. */

@@ -50,6 +50,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.rounded.Payments
+import com.splitfree.data.Pairs
 import androidx.compose.material.icons.rounded.Undo
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.togetherWith
@@ -87,7 +91,8 @@ private val dayNum = DateTimeFormatter.ofPattern("dd", Locale.US)
 private val weekShort = DateTimeFormatter.ofPattern("EEE", Locale.US)
 private fun zoned(ms: Long) = Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault())
 
-private val tabNames = listOf("Expenses", "Balances", "Totals")
+private val tabNames = listOf("Expenses", "Balances", "Totals", "Pay back")
+private const val PAY_BACK = 3
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -125,6 +130,8 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
     val debts = if (group.simplify) Balances.settle(nets) else Balances.pairwise(items)
     val mine = debts.filter { it.from == me || it.to == me }
     val myNet = nets[me] ?: 0
+    // Payments someone says they made to me, waiting for my yes.
+    val toConfirm = all[gid].orEmpty().count { it.pending && me in it.shares.keys }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -197,7 +204,11 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 items(tabNames.size) { i ->
-                    ActionPill(tabNames[i], { scope.launch { pager.animateScrollToPage(i) } }, filled = pager.currentPage == i)
+                    // "Pay back" is an action rather than a view, so it wears a soft tint instead of an outline.
+                    Box {
+                        ActionPill(tabNames[i], { scope.launch { pager.animateScrollToPage(i) } }, filled = pager.currentPage == i, soft = i == PAY_BACK)
+                        if (i == PAY_BACK && toConfirm > 0) AlertDot(Modifier.align(Alignment.TopEnd).offset(x = 2.dp, y = (-2).dp))
+                    }
                 }
             }
             HairLine()
@@ -207,7 +218,8 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                     // Payments marked as settled live in Balances and Activity, not in the expense list.
                     0 -> ExpensesPage(nav, group, expenses.filter { !it.settlement }, searching, query) { query = it }
                     1 -> BalancesPage(nav, group, nets, debts, me) { remind = it }
-                    else -> TotalsPage(group, all[gid].orEmpty(), me)
+                    2 -> TotalsPage(group, all[gid].orEmpty(), me)
+                    else -> PayBackPage(group, all[gid].orEmpty(), expenses, me)
                 }
             }
         }
@@ -381,24 +393,6 @@ private fun settledFor(uid: String, expenses: List<Expense>): List<Pair<Expense,
         .map { it to ((it.paid[uid] ?: 0) - (it.shares[uid] ?: 0)) }
         .filter { it.second != 0L }
 
-/**
- * The expenses behind [uid]'s current balance: everything since the last time
- * their balance was zero, newest first, with the effect each one had on them.
- */
-private fun pendingFor(uid: String, expenses: List<Expense>): List<Pair<Expense, Long>> {
-    val ordered = expenses.sortedWith(compareBy<Expense> { it.date }.thenBy { it.createdAt })
-    var bal = 0L
-    var from = 0
-    ordered.forEachIndexed { i, e ->
-        bal += (e.paid[uid] ?: 0) - (e.shares[uid] ?: 0)
-        if (bal == 0L) from = i + 1
-    }
-    val tagged = ordered.filter { it.settlement && !it.inputs["settles"].isNullOrBlank() }
-    val cleared = tagged.flatMap { it.inputs["settles"].orEmpty().split(',') }.toSet() + tagged.map { it.id }
-    return ordered.drop(from).filter { it.id !in cleared }.map { it to ((it.paid[uid] ?: 0) - (it.shares[uid] ?: 0)) }
-        .filter { it.second != 0L }.reversed()
-}
-
 /** One member's pending payments with everyone else in the group. */
 @Composable
 fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
@@ -415,27 +409,25 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     var settle by remember { mutableStateOf<Debt?>(null) }
     var paidIt by remember { mutableStateOf<Debt?>(null) }
     val live = all[gid].orEmpty().filter { !it.deleted }
-    // Settled: everything they took part in. Otherwise: what is behind the current balance.
-    // Everything they took part in, newest first; the ones still behind their balance are "pending".
-    val pendingIds = if (n == 0L) emptySet() else pendingFor(uid, live).map { it.first.id }.toSet()
-    // Payments they made to you that you can take back ("unsettle").
+    val book = remember(live, group.simplify) { Pairs(live, group.simplify) }
+    val byId = live.associateBy { it.id }
+    // Settled, partly settled or open: each expense as it stands for this member.
+    val progress = remember(live, group.simplify, uid) { book.progress(uid) }
+    // Payments they made to you that you can take back ("unsettle"), and what each was put towards.
     val myPayments = if (uid == me) emptyList() else live.filter { it.settlement && uid in it.paid.keys && me in it.shares.keys }
-    // A payment that settled particular expenses is shown as a "Settled" tag on those, not as a row of its own.
-    val settledBy: Map<String, Expense> = myPayments.flatMap { s ->
-        s.inputs["settles"].orEmpty().split(',').filter { it.isNotBlank() }.map { it to s }
-    }.toMap()
-    val taggedPayments = live.filter { it.settlement && !it.inputs["settles"].isNullOrBlank() }.map { it.id }.toSet()
-    val pending = settledFor(uid, live).filter { it.first.id !in taggedPayments }
-    // Unsettle: expenses settled one by one, plus whole payments they made to you.
+    val allocs = myPayments.associate { it.id to Pairs.allocOf(it, byId) }
+    val settledBy: Map<String, List<Expense>> = myPayments
+        .flatMap { pay -> allocs.getValue(pay.id).keys.map { it to pay } }.groupBy({ it.first }, { it.second })
+    // A payment spent entirely on particular expenses shows as tags on those, not as a row of its own.
+    val hidden = live.filter { it.settlement }.filter { pay ->
+        val al = Pairs.allocOf(pay, byId); al.isNotEmpty() && al.values.sum() >= pay.amount
+    }.map { it.id }.toSet()
+    val pending = settledFor(uid, live).filter { it.first.id !in hidden }
+    // Unsettle: expenses a payment was put towards, plus whole payments they made to you.
     val unsettleIds = pending.map { it.first.id }.filter { it in settledBy }.toSet() +
-        myPayments.filter { it.id !in taggedPayments }.map { it.id }
-    // On someone else's page, the expenses where they still owe you can be picked and marked as settled.
-    val owedNow = debts.filter { it.from == uid && it.to == me }.sumOf { it.amount }
-    val owedToMe = if (uid == me || n == 0L || owedNow == 0L) emptyMap() else pending.filter { it.first.id in pendingIds }.mapNotNull { (e, _) ->
-        if (e.settlement) null
-        else Balances.settle(Balances.nets(listOf(e.flows))).filter { it.from == uid && it.to == me }.sumOf { it.amount }
-            .takeIf { it > 0 }?.let { e.id to it }
-    }.toMap()
+        myPayments.filter { it.id !in hidden }.map { it.id }
+    // On someone else's page, what they still owe you on each expense can be picked and marked as settled.
+    val owedToMe: Map<String, Long> = if (uid == me) emptyMap() else book.state(uid, me).aOwes.filterValues { it > 0 }
     val picked = androidx.compose.runtime.saveable.rememberSaveable(saver = androidx.compose.runtime.saveable.listSaver(
         save = { it.toList() }, restore = { androidx.compose.runtime.mutableStateListOf<String>().apply { addAll(it) } }
     )) { androidx.compose.runtime.mutableStateListOf<String>() }
@@ -530,7 +522,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                     // Once picking has started, only rows of that kind (settle or unsettle) stay pickable.
                     val pickable = if (selecting) e.id in pickableNow else canSettle || canUnsettle
                     val toggle = { if (e.id in picked) picked.remove(e.id) else picked.add(e.id); Unit }
-                    PendingRow(group, e, effect, uid, me, settled = !e.settlement && e.id !in pendingIds, pickable = pickable && selecting, picked = e.id in picked, onPick = toggle,
+                    PendingRow(group, e, effect, uid, me, progress = if (e.settlement) null else progress[e.id], pickable = pickable && selecting, picked = e.id in picked, onPick = toggle,
                         onLongClick = if (canSettle || canUnsettle) ({
                             if (!selecting) { unsettling = canUnsettle && !canSettle; picked.clear(); picked.add(e.id); selecting = true }
                             else if (pickable && e.id !in picked) picked.add(e.id)
@@ -554,7 +546,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
             ).padding(top = 40.dp)
         ) {
             if (unsettling) FloatingAdd("Mark as unsettled", Icons.Rounded.Undo, { unsettlePicked = true })
-            else FloatingAdd("Mark as settled · ${Money.format(minOf(pickedTotal, owedNow))}", Icons.Rounded.Handshake, { settlePicked = true })
+            else FloatingAdd("Mark as settled · ${Money.format(pickedTotal)}", Icons.Rounded.Handshake, { settlePicked = true })
         }
     }
     }
@@ -565,28 +557,24 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                 // Whole payments picked directly.
                 val gone = myPayments.filter { it.id in chosen }
                 gone.forEach { Repo.unsettle(group, it) }
-                // Expenses settled one by one: take them out of their payment (or drop it when nothing is left).
-                chosen.mapNotNull { settledBy[it] }.distinctBy { it.id }.filter { s -> gone.none { it.id == s.id } }.forEach { s ->
-                    val ids = s.inputs["settles"].orEmpty().split(',').filter { it.isNotBlank() }
-                    val keep = ids.filter { it !in chosen }
-                    val back = ids.filter { it in chosen }.sumOf { id ->
-                        live.firstOrNull { it.id == id }?.let { x ->
-                            Balances.settle(Balances.nets(listOf(x.flows))).filter { it.from == uid && it.to == me }.sumOf { it.amount }
-                        } ?: 0L
-                    }
-                    val left = s.amount - back
-                    if (keep.isEmpty() || left <= 0) Repo.unsettle(group, s)
-                    else Repo.saveExpense(group, s.copy(amount = left, paid = mapOf(uid to left), shares = mapOf(me to left),
-                        inputs = mapOf("settles" to keep.joinToString(",")), updatedAt = System.currentTimeMillis()), isNew = false)
+                // Expenses: take them out of the payments put towards them (a payment with nothing left is dropped).
+                chosen.flatMap { settledBy[it].orEmpty() }.distinctBy { it.id }.filter { pay -> gone.none { it.id == pay.id } }.forEach { pay ->
+                    val al = allocs.getValue(pay.id)
+                    val keep = al.filterKeys { it !in chosen }
+                    val left = pay.amount - al.filterKeys { it in chosen }.values.sum()
+                    if (left <= 0) Repo.unsettle(group, pay)
+                    else Repo.saveExpense(group, pay.copy(amount = left, paid = mapOf(uid to left), shares = mapOf(me to left),
+                        inputs = if (keep.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(keep)),
+                        updatedAt = System.currentTimeMillis()), isNew = false)
                 }
                 picked.clear(); Haptics.success(context); toast(context, "Marked as unsettled")
             }, onDismiss = { unsettlePicked = false }, danger = false)
     }
     if (settlePicked) {
-        val amount = minOf(pickedTotal, owedNow)
+        val amount = pickedTotal
         ConfirmDialog("Mark as settled?", "${group.name(uid, me)} paid you ${Money.format(amount)} for ${picked.size} ${if (picked.size == 1) "expense" else "expenses"}.", "Settle",
             onConfirm = {
-                Repo.settle(group, uid, me, amount, System.currentTimeMillis(), picked.toList())
+                Repo.settle(group, uid, me, amount, System.currentTimeMillis(), picked.associateWith { owedToMe[it] ?: 0L }.filterValues { it > 0 })
                 picked.clear(); Haptics.success(context); toast(context, "Marked as settled")
             }, onDismiss = { settlePicked = false }, danger = false)
     }
@@ -601,7 +589,8 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
     settle?.let { d ->
         ConfirmDialog("Mark as settled?", "${group.name(d.from, me)} paid you ${Money.format(d.amount)}. This clears it from the balances.", "Settle",
             onConfirm = {
-                Repo.settle(group, d.from, d.to, d.amount, System.currentTimeMillis())
+                // The whole balance: spread over their open expenses, smallest first.
+                Repo.settle(group, d.from, d.to, d.amount, System.currentTimeMillis(), book.allocate(d.from, d.to, d.amount).amounts)
                 Haptics.success(context); toast(context, "Marked as settled")
             }, onDismiss = { settle = null }, danger = false)
     }
@@ -609,7 +598,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
 
 /** One expense behind a member's balance: category, title, who added it and what it means for them. */
 @Composable
-private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: String, settled: Boolean = false,
+private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: String, progress: Pairs.Progress? = null,
                        pickable: Boolean = false, picked: Boolean = false, onPick: () -> Unit = {}, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     WarmCard(onClick = onClick, onLongClick = onLongClick, padding = 12.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -624,10 +613,10 @@ private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (settled) {
-                        // A quiet tag: already cleared.
+                    if (progress?.settled == true || progress?.partly == true) {
+                        // A quiet tag: cleared, or how much is still open.
                         Spacer(Modifier.width(6.dp))
-                        Text("Settled", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                        Text(if (progress.settled) "Settled" else "Partly settled · ${Money.format(progress.open)} left", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                             modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(50))
                                 .padding(horizontal = 7.dp, vertical = 1.dp))
                     }
@@ -658,6 +647,153 @@ private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: 
                 exit = androidx.compose.animation.shrinkHorizontally(androidx.compose.animation.core.tween(220)) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))) {
                 Box(Modifier.padding(start = 12.dp).clip(androidx.compose.foundation.shape.CircleShape).clickable { Haptics.tick(ctx); onPick() }) { RadioDot(picked) }
             }
+        }
+    }
+}
+
+/** In words: what a lump sum would settle. [open] is what was open on each expense before it. */
+private fun describeAlloc(alloc: com.splitfree.money.Alloc, open: Map<String, Long>, byId: Map<String, Expense>, extraLine: String): List<String> {
+    val out = ArrayList<String>()
+    val full = alloc.amounts.filter { (id, v) -> v >= (open[id] ?: 0L) }.keys.mapNotNull { byId[it]?.title }
+    if (full.isNotEmpty()) out += "Settles " + (if (full.size <= 3) full.joinToString(", ") else full.take(2).joinToString(", ") + " and ${full.size - 2} more") + "."
+    alloc.amounts.filter { (id, v) -> v < (open[id] ?: 0L) }.forEach { (id, v) ->
+        out += "Partly settles ${byId[id]?.title ?: "an expense"}: ${Money.format(v)} of ${Money.format(open[id] ?: 0L)}."
+    }
+    if (alloc.extra > 0) out += extraLine.replace("%s", Money.format(alloc.extra))
+    return out
+}
+
+/**
+ * "Pay back": record one lump sum paid to someone without naming the expenses.
+ * It clears the smallest open amounts first and partly settles the next one.
+ * A payment you made waits here until the receiver confirms it.
+ */
+@Composable
+private fun PayBackPage(group: Group, raw: List<Expense>, live: List<Expense>, me: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val book = remember(live, group.simplify) { Pairs(live, group.simplify) }
+    val byId = live.associateBy { it.id }
+    val claims = raw.filter { it.pending && me in it.involved }.sortedByDescending { it.createdAt }
+    val others = group.members.filter { it != me }
+    var recording by remember { mutableStateOf(false) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 28.dp)) {
+        item {
+            Text("Paid someone a lump sum?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
+            Spacer(Modifier.height(6.dp))
+            Text("Record it here without picking expenses. It settles your smallest dues to them first, then partly settles the next one. " +
+                "If you paid more than you owe, they owe you the extra. The other person confirms it before it counts.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(16.dp))
+            PrimaryButton("Record a payment", Icons.Rounded.Payments, { recording = true }, Modifier.fillMaxWidth(), enabled = others.isNotEmpty())
+            if (others.isEmpty()) { Spacer(Modifier.height(10.dp)); Footnote("Add people to this group first.") }
+            Spacer(Modifier.height(22.dp))
+            if (claims.isNotEmpty()) SectionLabel("Waiting for confirmation")
+        }
+        items(claims, key = { it.id }) { c ->
+            val from = c.paid.keys.firstOrNull().orEmpty()
+            val to = c.shares.keys.firstOrNull().orEmpty()
+            val mine = to == me
+            WarmCard(padding = 14.dp, modifier = Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(group.info[if (mine) from else to]?.name ?: "?", if (mine) from else to, 40.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(if (mine) "${group.name(from, me)} says they paid you" else "Waiting for ${group.name(to, me)} to confirm",
+                            style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(Fmt.relative(c.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(Money.format(c.amount), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                }
+                // What confirming would do, in words.
+                val st = book.state(from, to)
+                val alloc = com.splitfree.money.Ledger.allocate(c.amount, st.aOwes, st.aDues)
+                val lines = describeAlloc(alloc, st.aOwes, byId, if (mine) "%s is extra: you will owe it back." else "%s is extra: they will owe it back.")
+                if (lines.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+                Spacer(Modifier.height(12.dp))
+                if (mine) Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    SecondaryButton("Reject", null, { Repo.rejectPayment(group, c); toast(context, "Payment rejected") }, Modifier.weight(1f))
+                    PrimaryButton("Confirm", null, {
+                        Repo.confirmPayment(group, c, alloc.amounts); Haptics.success(context); toast(context, "Payment confirmed")
+                    }, Modifier.weight(1f))
+                } else TertiaryButton("Cancel this payment", { Repo.rejectPayment(group, c); toast(context, "Payment cancelled") }, Modifier.fillMaxWidth())
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+    }
+    if (recording) RecordPaymentDialog(group, book, byId, others, me) { recording = false }
+}
+
+/** Who, which way, how much, with a plain-words preview of what it will settle. */
+@Composable
+private fun RecordPaymentDialog(group: Group, book: Pairs, byId: Map<String, Expense>, others: List<String>, me: String, onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Start on whoever you owe the most.
+    val nets = remember(book) { others.associateWith { book.state(me, it).net } }
+    var who by remember { mutableStateOf(others.maxByOrNull { nets[it] ?: 0L } ?: others.first()) }
+    var iPaid by remember { mutableStateOf(true) }
+    var text by remember { mutableStateOf("") }
+    val amount = Money.parse(text) ?: 0L
+    WarmDialog("Record a payment", onDismiss = onDismiss) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("I paid", iPaid) { iPaid = true }
+            Chip("I received", !iPaid) { iPaid = false }
+        }
+        Spacer(Modifier.height(14.dp))
+        SectionLabel(if (iPaid) "Paid to" else "Received from")
+        ListCard {
+            Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) {
+                others.forEachIndexed { i, uid ->
+                    if (i > 0) HairLine()
+                    val n = nets[uid] ?: 0L
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable { Haptics.tick(ctx); who = uid }.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Avatar(group.info[uid]?.name ?: "?", uid, 34.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(group.name(uid, me), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(when { n > 0 -> "You owe ${Money.format(n)}"; n < 0 -> "Owes you ${Money.format(-n)}"; else -> "Settled up" },
+                                style = MaterialTheme.typography.bodySmall, color = moneyColor(-n))
+                        }
+                        RadioDot(who == uid)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Field(text, { text = it }, label = "Amount", placeholder = "0.00", keyboard = androidx.compose.ui.text.input.KeyboardType.Decimal, prefix = "₹")
+        // What this amount would do, before anything is sent.
+        val from = if (iPaid) me else who
+        val to = if (iPaid) who else me
+        val st = book.state(from, to)
+        val alloc = com.splitfree.money.Ledger.allocate(amount, st.aOwes, st.aDues)
+        val lines = if (amount <= 0) emptyList() else describeAlloc(alloc, st.aOwes, byId,
+            if (iPaid) "%s is extra: ${group.name(who, me)} will owe it back." else "%s is extra: you will owe it back.")
+        if (lines.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(if (iPaid) "${group.name(who, me)} gets a notification to confirm it." else "This counts right away, since you received it.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(18.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            SecondaryButton("Cancel", null, onDismiss, Modifier.weight(1f))
+            PrimaryButton(if (iPaid) "Send" else "Record", null, {
+                if (iPaid) {
+                    Repo.claimPayment(group, who, amount)
+                    toast(context, "Sent to ${group.name(who, me)} to confirm")
+                } else {
+                    Repo.settle(group, who, me, amount, System.currentTimeMillis(), alloc.amounts)
+                    Haptics.success(context); toast(context, "Payment recorded")
+                }
+                onDismiss()
+            }, Modifier.weight(1f), enabled = amount > 0)
         }
     }
 }

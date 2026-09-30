@@ -44,6 +44,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.outlined.Update
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material.icons.outlined.Battery0Bar
 import androidx.compose.material.icons.outlined.SystemUpdate
@@ -102,11 +104,11 @@ fun AccountTab(nav: NavViewModel) {
             "Battery & Autostart",
             if (xiaomiLike) "Turn on Autostart and set Battery saver to “No restrictions” so notifications arrive on time"
             else "Set battery to “Unrestricted” so notifications arrive on time",
-            Icons.Outlined.Battery0Bar, onClick = {
+            Icons.Outlined.Bolt, onClick = {
                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
             })
         var checking by remember { mutableStateOf(false) }
-        SettingRow("Check for updates", if (checking) "Checking…" else "You're on v${BuildConfig.VERSION_NAME}", Icons.Outlined.SystemUpdateAlt, onClick = {
+        SettingRow("Check for updates", if (checking) "Checking…" else "You're on v${BuildConfig.VERSION_NAME}", Icons.Outlined.Update, onClick = {
             if (!checking) {
                 checking = true
                 scope.launch {
