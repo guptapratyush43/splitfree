@@ -353,7 +353,7 @@ object Repo {
         val now = System.currentTimeMillis()
         group(g.id).collection("expenses").document(c.id).update(mapOf(
             "pending" to false, "deleted" to false, "deletedAt" to 0L, "date" to now, "updatedAt" to now,
-            "inputs" to (if (alloc.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(alloc)))
+            "inputs" to (mapOf("lump" to "1") + (if (alloc.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(alloc))))
         ))
         val from = c.paid.keys.firstOrNull()?.let { g.info[it]?.name } ?: "Someone"
         log(g.id, "${Auth.name} confirmed ${Money.format(c.amount)} from $from", c.id, c.involved)
@@ -368,12 +368,12 @@ object Repo {
     }
 
     /** Records [from] paying [to]. [alloc]: the paise this payment puts towards each expense. */
-    fun settle(g: Group, from: String, to: String, amount: Long, date: Long, alloc: Map<String, Long> = emptyMap()) {
+    fun settle(g: Group, from: String, to: String, amount: Long, date: Long, alloc: Map<String, Long> = emptyMap(), lump: Boolean = false) {
         val now = System.currentTimeMillis()
         val e = Expense(
             id = newExpenseId(g.id), groupId = g.id, title = "Payment", note = "", category = Category.GENERAL,
             amount = amount, date = date, paid = mapOf(from to amount), shares = mapOf(to to amount),
-            mode = "EXACT", inputs = if (alloc.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(alloc)),
+            mode = "EXACT", inputs = (if (lump) mapOf("lump" to "1") else emptyMap()) + (if (alloc.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(alloc))),
             payerInputs = emptyMap(), createdBy = Auth.uid!!, createdAt = now,
             updatedAt = now, deleted = false, deletedAt = 0, settlement = true, repeat = Repeat.NONE, nextDue = 0, templateId = null
         )

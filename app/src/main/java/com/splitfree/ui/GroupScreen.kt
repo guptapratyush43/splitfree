@@ -219,7 +219,7 @@ fun GroupScreen(nav: NavViewModel, gid: String, startTab: Int = 0) {
                     0 -> ExpensesPage(nav, group, expenses.filter { !it.settlement }, searching, query) { query = it }
                     1 -> BalancesPage(nav, group, nets, debts, me) { remind = it }
                     2 -> TotalsPage(group, all[gid].orEmpty(), me)
-                    else -> PayBackPage(group, all[gid].orEmpty(), expenses, me)
+                    else -> PayBackPage(group, all[gid].orEmpty(), expenses, me) { nav.push(Screen.Detail(gid, it)) }
                 }
             }
         }
@@ -564,7 +564,7 @@ fun MemberScreen(nav: NavViewModel, gid: String, uid: String) {
                     val left = pay.amount - al.filterKeys { it in chosen }.values.sum()
                     if (left <= 0) Repo.unsettle(group, pay)
                     else Repo.saveExpense(group, pay.copy(amount = left, paid = mapOf(uid to left), shares = mapOf(me to left),
-                        inputs = if (keep.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(keep)),
+                        inputs = pay.inputs.filterKeys { it == "lump" } + (if (keep.isEmpty()) emptyMap() else mapOf("alloc" to Pairs.encode(keep))),
                         updatedAt = System.currentTimeMillis()), isNew = false)
                 }
                 picked.clear(); Haptics.success(context); toast(context, "Marked as unsettled")
@@ -610,20 +610,18 @@ private fun PendingRow(group: Group, e: Expense, effect: Long, uid: String, me: 
                     val to = e.shares.keys.firstOrNull()?.let { if (it == me) "you" else group.name(it, me) } ?: "someone"
                     "$from paid $to"
                 } else e.title
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (progress?.settled == true || progress?.partly == true) {
-                        // A quiet tag: cleared, or how much is still open.
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (progress.settled) "Settled" else "Partly settled · ${Money.format(progress.open)} left", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-                            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(50))
-                                .padding(horizontal = 7.dp, vertical = 1.dp))
-                    }
-                }
+                Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
                 Text(if (e.settlement) "Payment · Marked by ${group.name(e.createdBy, me)}" else "${e.category.label} · Added by ${group.name(e.createdBy, me)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (progress?.settled == true || progress?.partly == true) {
+                    // A quiet tag on its own line: cleared, or how much is still open.
+                    Spacer(Modifier.height(5.dp))
+                    Text(if (progress.settled) "Settled" else "Partly settled · ${Money.format(progress.open)} left", maxLines = 1, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(50))
+                            .padding(horizontal = 7.dp, vertical = 1.dp))
+                }
             }
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
@@ -668,14 +666,20 @@ private fun describeAlloc(alloc: com.splitfree.money.Alloc, open: Map<String, Lo
  * It clears the smallest open amounts first and partly settles the next one.
  * A payment you made waits here until the receiver confirms it.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun PayBackPage(group: Group, raw: List<Expense>, live: List<Expense>, me: String) {
+private fun PayBackPage(group: Group, raw: List<Expense>, live: List<Expense>, me: String, onOpen: (String) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val book = remember(live, group.simplify) { Pairs(live, group.simplify) }
     val byId = live.associateBy { it.id }
     val claims = raw.filter { it.pending && me in it.involved }.sortedByDescending { it.createdAt }
     val others = group.members.filter { it != me }
     var recording by remember { mutableStateOf(false) }
+    // Confirmed lump sums you paid or received, grouped by who made them.
+    val lumps = live.filter { Pairs.isLump(it) && me in it.involved }.sortedByDescending { it.date }
+    val byPayer = lumps.groupBy { it.paid.keys.firstOrNull().orEmpty() }.entries
+        .sortedWith(compareBy({ it.key != me }, { group.name(it.key, me) }))
+    var openPayer by rememberSaveable { mutableStateOf<String?>(null) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 28.dp)) {
         item {
             Text("Paid someone a lump sum?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onBackground)
@@ -691,6 +695,51 @@ private fun PayBackPage(group: Group, raw: List<Expense>, live: List<Expense>, m
         items(claims, key = { it.id }) { c ->
             Box(Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)) { ClaimCard(group, c, me) }
             Spacer(Modifier.height(10.dp))
+        }
+        if (byPayer.isNotEmpty()) item {
+            Spacer(Modifier.height(if (claims.isEmpty()) 0.dp else 12.dp))
+            SectionLabel("Lump-sum payments")
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            // One tag per person who paid; tap to see every lump sum they made.
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                byPayer.forEach { (payer, list) ->
+                    val on = openPayer == payer
+                    val src = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.pressScale(src)
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                        .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable(src, null) { Haptics.tick(ctx); openPayer = if (on) null else payer }
+                        .padding(start = 5.dp, end = 12.dp, top = 5.dp, bottom = 5.dp)) {
+                        Avatar(group.info[payer]?.name ?: "?", payer, 26.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("${group.name(payer, me)} · ${list.size}", style = MaterialTheme.typography.labelLarge,
+                            color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+        val shown = byPayer.firstOrNull { it.key == openPayer }?.value.orEmpty()
+        items(shown, key = { "lump" + it.id }) { p ->
+            val to = p.shares.keys.firstOrNull().orEmpty()
+            val covered = Pairs.allocOf(p, byId).count { it.key in byId }
+            Box(Modifier.animateItem()) {
+                WarmCard(onClick = { onOpen(p.id) }, padding = 12.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CategoryBubble("🤝", 40.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("${group.name(p.paid.keys.firstOrNull().orEmpty(), me)} paid ${if (to == me) "you" else group.name(to, me)}",
+                                style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(Fmt.day(p.date) + (if (covered > 0) " · settled $covered ${if (covered == 1) "expense" else "expenses"}" else ""),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(Money.format(p.amount), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
         }
     }
     if (recording) RecordPaymentDialog(group, book, byId, others, me) { recording = false }
@@ -810,7 +859,7 @@ private fun RecordPaymentDialog(group: Group, book: Pairs, byId: Map<String, Exp
                     Repo.claimPayment(group, who, amount)
                     toast(context, "Sent to ${group.name(who, me)} to confirm")
                 } else {
-                    Repo.settle(group, who, me, amount, System.currentTimeMillis(), alloc.amounts)
+                    Repo.settle(group, who, me, amount, System.currentTimeMillis(), alloc.amounts, lump = true)
                     Haptics.success(context); toast(context, "Payment recorded")
                 }
                 onDismiss()

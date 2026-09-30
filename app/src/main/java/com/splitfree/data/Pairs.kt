@@ -114,5 +114,8 @@ class Pairs(private val live: List<Expense>, private val simplify: Boolean) {
             return payment.inputs["settles"].orEmpty().split(',').filter { it.isNotBlank() }
                 .mapNotNull { id -> byId[id]?.let { id to owed(it, from, to) } }.toMap()
         }
+
+        /** A lump sum from the Pay back tab (older ones: recorded by the payer themselves). */
+        fun isLump(e: Expense): Boolean = e.settlement && (e.inputs["lump"] == "1" || e.createdBy in e.paid.keys)
     }
 }

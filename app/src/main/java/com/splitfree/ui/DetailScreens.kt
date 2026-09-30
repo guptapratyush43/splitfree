@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -94,8 +95,10 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
                 // A payment that settled particular expenses shows what it was for, with that expense's icon.
                 val allHere by Repo.expenses.collectAsState()
                 val liveHere = allHere[gid].orEmpty().filter { !it.deleted }
-                val settledIds = if (e.settlement) com.splitfree.data.Pairs.allocOf(e, liveHere.associateBy { it.id }).keys else emptySet()
-                val settled = settledIds.mapNotNull { id -> liveHere.firstOrNull { it.id == id } }
+                val alloc = if (e.settlement) com.splitfree.data.Pairs.allocOf(e, liveHere.associateBy { it.id }) else emptyMap()
+                val lump = com.splitfree.data.Pairs.isLump(e)
+                // A lump sum keeps the handshake; what it covered is listed below instead.
+                val settled = if (lump) emptyList() else alloc.keys.mapNotNull { id -> liveHere.firstOrNull { it.id == id } }
                 // How much of this expense is still open, from where you stand.
                 val progress = if (e.settlement || e.deleted) null
                     else remember(liveHere, group.simplify, e.id) { com.splitfree.data.Pairs(liveHere, group.simplify).progress(me)[e.id] }
@@ -103,7 +106,7 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CategoryBubble(when {
                             settled.isNotEmpty() -> settled.first().category.emoji
-                            e.settlement && e.category == com.splitfree.data.Category.GENERAL -> "🤝"
+                            e.settlement && (lump || e.category == com.splitfree.data.Category.GENERAL) -> "🤝"
                             else -> e.category.emoji
                         }, 60.dp)
                         Spacer(Modifier.width(16.dp))
@@ -113,6 +116,7 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
                             Text(
                                 when {
                                     settled.isNotEmpty() -> settled.joinToString(", ") { it.title }
+                                    lump -> "Lump-sum payment"
                                     e.settlement -> "Payment"
                                     else -> e.title
                                 },
@@ -174,6 +178,40 @@ fun ExpenseDetail(nav: NavViewModel, gid: String, eid: String, toComments: Boole
                             Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
+                }
+                // Each expense this payment went towards: how much, and when that expense was added.
+                val covered = alloc.mapNotNull { (id, v) -> liveHere.firstOrNull { it.id == id }?.let { it to v } }
+                    .sortedBy { it.first.date }
+                if (e.settlement && covered.isNotEmpty()) {
+                    val from = e.paid.keys.firstOrNull().orEmpty()
+                    val to = e.shares.keys.firstOrNull().orEmpty()
+                    Spacer(Modifier.height(16.dp))
+                    SectionLabel("Settled with this payment")
+                    ListCard {
+                        covered.forEachIndexed { i, (x, v) ->
+                            if (i > 0) HairLine()
+                            val owed = com.splitfree.data.Pairs.owed(x, from, to)
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { nav.push(Screen.Detail(gid, x.id)) }.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                CategoryBubble(x.category.emoji, 38.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(x.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    Text(whenText(x.date, x.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(Money.format(v), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                                    Text(if (owed in 1..v) "Settled" else if (owed > v) "of ${Money.format(owed)}" else "",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                    val extra = e.amount - covered.sumOf { it.second }
+                    if (extra > 0) Text("${Money.format(extra)} was extra and carried forward.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, top = 8.dp))
                 }
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("Comments")
